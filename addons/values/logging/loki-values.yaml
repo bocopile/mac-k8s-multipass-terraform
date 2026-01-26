@@ -1,0 +1,19 @@
+auth_enabled: false
+
+commonConfig:
+  replication_factor: 1
+
+compactor:
+  working_directory: /data/loki/compactor
+
+storage:
+  type: filesystem
+
+loki:
+  persistence:
+    enabled: true
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    storageClass: local-path
+    mountPath: /data/loki

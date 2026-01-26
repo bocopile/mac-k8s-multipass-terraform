@@ -1,0 +1,11 @@
+auth:
+  strategy: anonymous
+deployment:
+  service_type: LoadBalancer
+external_services:
+  prometheus:
+    url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+  tracing:
+    url: http://jaeger-query.tracing.svc.cluster.local:16686
+service:
+  type: LoadBalancer

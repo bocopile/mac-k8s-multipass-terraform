@@ -1,0 +1,10 @@
+configs:
+  secret:
+    # admin
+    argocdServerAdminPassword: $2y$12$2btfod59SWVmV09TuHabu.1j8Xq7kD3Pn7wF0zW9deziF0zHW9Soa
+
+server:
+  ingress:
+    enabled: false
+  service:
+    type: LoadBalancer

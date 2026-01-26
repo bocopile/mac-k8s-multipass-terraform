@@ -1,0 +1,17 @@
+storageClass:
+  create: true
+  defaultClass: true
+  name: local-path
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+  provisioner: rancher.io/local-path
+
+helperPod:
+  mountPath: /opt/local-path-provisioner
+  nodeSelector: {}
+  tolerations: []
+
+nodePathMap:
+  - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+    paths:
+      - /opt/local-path-provisioner

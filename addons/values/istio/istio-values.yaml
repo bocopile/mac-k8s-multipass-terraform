@@ -1,0 +1,20 @@
+global:
+  proxy:
+    autoInject: enabled
+  mtls:
+    enabled: true
+
+gateways:
+  istio-ingressgateway:
+    type: LoadBalancer
+    ports:
+      - port: 80
+        targetPort: 8080
+        name: http
+      - port: 443
+        targetPort: 8443
+        name: https
+    serviceAnnotations: {}
+
+pilot:
+  autoscaleEnabled: false

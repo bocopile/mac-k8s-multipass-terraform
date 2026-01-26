@@ -1,0 +1,45 @@
+# Terraform state
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.backup
+
+# Terraform dir
+.terraform/
+.terraform.lock.hcl
+
+# Local kubeconfig
+kubeconfig
+kubeconfig.*
+
+# Log files
+*.log
+*.out
+*.err
+
+# Shell script cache/output
+shell/*.log
+
+# Cloud-init
+init/*.log
+
+# macOS system files
+.DS_Store
+
+# Zip backups or generated files
+*.zip
+
+# Secrets (example)
+secrets.env
+.env
+.env.*
+
+# IDE / editor files
+.vscode/
+.idea/*
+*.swp
+*.swo
+
+#join shell
+./shell/join-controlplane.sh
+./shell/join.sh
