@@ -43,3 +43,13 @@ secrets.env
 #join shell
 ./shell/join-controlplane.sh
 ./shell/join.sh
+# SubOrchestrator - Auto-generated entries
+.orchestrator/checkpoints/
+.orchestrator/conversations/
+.orchestrator/logs/
+.orchestrator/*.jsonl
+.orchestrator/sessions.db
+.orchestrator/approvals/
+.worktrees/
+.env.local
+.orchestrator/**
