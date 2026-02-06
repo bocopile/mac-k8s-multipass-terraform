@@ -1,4 +1,4 @@
-# [K8s 아키텍처] 멀티클러스터 설계: 로컬에서 Azure까지
+# [K8s 아키텍처] 멀티클러스터 설계: Multipass 로컬 환경
 
 ## 0. 개념 요약
 
@@ -7,7 +7,7 @@
 이 글에서는 다음 내용을 다룹니다:
 - **mgmt + app 분리 구조**의 설계 이유
 - **Graceful Degradation**을 통한 장애 격리
-- 로컬(Multipass) → Azure 전환 시 고려사항
+- Multipass 로컬 환경에서의 멀티클러스터 구현
 - **ADR(Architecture Decision Record)**로 설계 의도 보존
 
 | 용어 | 설명 |
@@ -84,7 +84,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    subgraph Local["로컬 네트워크 (192.168.64.0/24)"]
+    subgraph Local["Multipass 네트워크 (192.168.64.0/24)"]
         subgraph mgmt["mgmt"]
             pod1["Pod 10.100.x.x"]
         end
@@ -210,7 +210,7 @@ flowchart LR
 | 영역 | 선택 | 이유 |
 |-----|------|------|
 | **VM** | Multipass | Apple Silicon 네이티브, 경량 |
-| **K8s 설치** | kubeadm v1.35 | 클라우드와 유사한 구조 |
+| **K8s 설치** | kubeadm v1.35 | 클러스터 내부 구조 학습에 적합 |
 | **CNI** | Cilium | Cluster Mesh, eBPF 성능 |
 | **네트워크 모드** | VXLAN Tunneling | Multipass 브리지에서 Native Routing 불가 |
 
@@ -228,75 +228,7 @@ flowchart LR
 
 ---
 
-## 5. Azure 전환
-
-### 5.1 Spot VM Tier 전략
-
-Azure Spot VM은 정가 대비 **🔥 70% 저렴**하지만 회수(eviction) 가능성이 있습니다. 워크로드를 **Tier로 분류**하여 배치합니다:
-
-| Tier | 워크로드 | 시연 환경 | 프로덕션 권장 |
-|-----|---------|----------|-------------|
-| **Tier 0** | AKS Control Plane | Azure 관리형 | Azure 관리형 |
-| **Tier 1** | mgmt 워크로드 | Spot VM | On-Demand |
-| **Tier 2** | app 워크로드 | Spot VM | Spot VM |
-
-> ⚠️ **주의**: 외부 시연/라이브 데모라면 **mgmt(Tier 1)는 On-Demand 권장**합니다. Spot VM 회수 시 Grafana, ArgoCD 대시보드가 함께 내려가면 데모가 중단됩니다.
-
-### 5.2 예상 비용 비교
-
-| 환경 | 월 비용 | 비고 |
-|-----|--------|------|
-| **On-Demand 전체** | ~$200-300 | 일반 가격 |
-| **Spot VM (시연)** | **~$60-80** | 🔥 **70% 절감** |
-
-**비용 상세 (시연 환경)**:
-
-| 항목 | 월 비용 | 비고 |
-|-----|--------|------|
-| AKS Control Plane | 무료 | Free Tier |
-| VM (Spot 5노드) | ~$50 | Standard_D2s_v3 |
-| Azure Disk | ~$5 | Standard SSD |
-| Log Analytics | ~$5 | 5GB/일 제한 |
-| **합계** | **~$60-80** | |
-
-### 5.3 컴포넌트 매핑
-
-| 로컬 (Multipass) | Azure | 변경 사항 |
-|-----------------|-------|----------|
-| Multipass VM | AKS Node Pool | Spot VM 사용 |
-| kubeadm | AKS (관리형) | Control Plane Azure 관리 |
-| Vault | [Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/) | 동적 시크릿 미지원 |
-| Prometheus + Thanos | Azure Monitor | 또는 Self-hosted 유지 |
-| Harbor | Azure Container Registry | Premium SKU 권장 |
-| MinIO | Azure Blob Storage | Velero backend 변경 |
-
-### 5.4 Terraform 구성 예시
-
-```hcl
-# AKS Spot Node Pool
-resource "azurerm_kubernetes_cluster_node_pool" "spot" {
-  name                  = "spot"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.main.id
-  vm_size               = "Standard_D2s_v3"
-  node_count            = 2
-
-  priority        = "Spot"
-  eviction_policy = "Delete"
-  spot_max_price  = 0.04  # 최대 가격 제한
-
-  node_labels = {
-    "kubernetes.azure.com/scalesetpriority" = "spot"
-  }
-
-  node_taints = [
-    "kubernetes.azure.com/scalesetpriority=spot:NoSchedule"
-  ]
-}
-```
-
----
-
-## 6. 아키텍처 불변 조건 (Architecture Contract)
+## 5. 아키텍처 불변 조건 (Architecture Contract)
 
 구현이 변경되더라도 **반드시 유지**되어야 하는 조건을 명시합니다:
 
@@ -315,19 +247,18 @@ resource "azurerm_kubernetes_cluster_node_pool" "spot" {
 > 📌 **이 글의 핵심 3줄**
 > 1. **멀티클러스터 = 장애 격리**. mgmt와 app을 분리하면 플랫폼 장애가 워크로드에 전파되지 않음
 > 2. **Graceful Degradation**으로 mgmt가 죽어도 app은 캐시/버퍼로 독립 동작
-> 3. **로컬에서 먼저 검증**, Azure 전환 시 Spot VM으로 **70% 비용 절감**
+> 3. **Multipass 로컬 환경**에서 프로덕션과 유사한 멀티클러스터 구조를 비용 없이 검증
 
 | 환경 | 주요 특징 |
 |-----|----------|
-| **로컬 (Multipass)** | 빠른 피드백 루프, 비용 없음, 64GB Mac이면 충분 |
-| **Azure** | Spot VM으로 월 $60-80, 관리형 서비스 활용 |
+| **Multipass 로컬** | 빠른 피드백 루프, 비용 없음, 64GB Mac이면 충분 |
 
 **내가 이 구조를 선택한 이유**:
 - **64GB 제약** → mgmt에 플랫폼 집중 (분산 불가)
 - **Multipass 브리지** → Cilium VXLAN (Native Routing 불가)
-- **비용 민감** → Spot VM Tier 전략
+- **빠른 반복** → 로컬에서 먼저 검증 후 클라우드 전환
 
-다음 단계로는 **Crossplane**을 활용한 Azure 리소스 GitOps화, **Argo Rollouts**를 통한 카나리 배포 추가를 고려하고 있습니다.
+다음 단계로는 **Crossplane**을 활용한 리소스 GitOps화, **Argo Rollouts**를 통한 카나리 배포 추가를 고려하고 있습니다.
 
 ---
 
@@ -336,9 +267,8 @@ resource "azurerm_kubernetes_cluster_node_pool" "spot" {
 - [Cilium Cluster Mesh 공식 문서](https://docs.cilium.io/en/stable/network/clustermesh/)
 - [Gateway API](https://gateway-api.sigs.k8s.io/)
 - [ADR GitHub Template](https://github.com/joelparkerhenderson/architecture-decision-record)
-- [Azure Spot VMs](https://learn.microsoft.com/en-us/azure/virtual-machines/spot-vms)
 - [Prometheus Remote Write](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write)
 
 ---
 
-**태그**: `#Kubernetes` `#MultiCluster` `#Azure` `#PlatformEngineering` `#SRE` `#Cilium` `#Terraform`
+**태그**: `#Kubernetes` `#MultiCluster` `#PlatformEngineering` `#SRE` `#Cilium` `#Terraform` `#Multipass`

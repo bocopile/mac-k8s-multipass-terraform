@@ -1,7 +1,7 @@
 # Azure 운영 런북 (Operations Runbook)
 
 > **버전**: 2.0.0
-> **관련 문서**: [아키텍처](ARCHITECTURE-AZURE.md) | [구현 가이드](IMPLEMENTATION-AZURE.md)
+> **관련 문서**: [아키텍처](ARCHITECTURE.md) | [구현 가이드](IMPLEMENTATION-GUIDE.md)
 
 이 문서는 Azure Kubernetes 환경의 운영 절차를 포함합니다.
 

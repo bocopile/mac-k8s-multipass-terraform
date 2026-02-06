@@ -1,7 +1,7 @@
 # Azure 구현 가이드 (Implementation Guide)
 
 > **버전**: 2.0.0
-> **관련 문서**: [아키텍처](ARCHITECTURE-AZURE.md) | [운영 런북](RUNBOOK-AZURE.md)
+> **관련 문서**: [아키텍처](ARCHITECTURE.md) | [운영 런북](OPERATIONS-RUNBOOK.md)
 
 이 문서는 Azure Kubernetes 환경의 Terraform 코드와 설정을 포함합니다.
 

@@ -2,7 +2,7 @@
 
 > **버전**: 2.0.0
 > **최종 수정일**: 2026-02-05
-> **관련 문서**: [구현 가이드](IMPLEMENTATION-AZURE.md) | [운영 런북](RUNBOOK-AZURE.md)
+> **관련 문서**: [구현 가이드](IMPLEMENTATION-GUIDE.md) | [운영 런북](OPERATIONS-RUNBOOK.md)
 
 ---
 
@@ -18,7 +18,6 @@
 8. [장애 도메인 및 가용성](#8-장애-도메인-및-가용성)
 9. [비용 최적화 전략](#9-비용-최적화-전략)
 10. [백업 및 DR 전략](#10-백업-및-dr-전략)
-- [부록 A: 로컬 → Azure 환경 매핑](#부록-a-로컬--azure-환경-매핑)
 
 ---
 
@@ -87,14 +86,14 @@ Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축합니다
 > **참고**: AKS Control Plane은 Azure 관리형으로 Tier 분류 대상 아님. 위 Tier는 **User Node Pool** 기준.
 > **프로덕션 권장**: Tier 1 워크로드는 On-Demand 노드 풀에 배치하여 안정성 확보 (+$50-80/월)
 
-> 📎 **구현**: [IMPLEMENTATION-AZURE.md §3.2](IMPLEMENTATION-AZURE.md#32-spot-node-pool)
+> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §3.2](IMPLEMENTATION-GUIDE.md#32-spot-node-pool)
 
 ### ADR-A02: CNI 선택 - Cilium BYO vs Azure CNI
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | 로컬 환경과의 일관성 vs Azure 네이티브 통합 |
+| **컨텍스트** | 멀티클러스터 서비스 디스커버리 지원과 Azure 네이티브 통합 간 트레이드오프 |
 | **결정** | 기본안: Cilium BYO CNI (Cluster Mesh 지원) |
 | **대안** | Azure CNI (운영 편의성 우선 시) |
 
@@ -103,25 +102,25 @@ Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축합니다
 | 항목 | Cilium (BYO) | Azure CNI |
 |-----|-------------|-----------|
 | Cluster Mesh | ✅ 지원 | ❌ 미지원 |
-| 로컬 환경 일관성 | ✅ 동일 | ❌ 다름 |
-| Azure 지원 | 제한적 (BYO) | ✅ 완전 지원 |
+| Azure 네이티브 통합 | 제한적 (BYO) | ✅ 완전 지원 |
 | Network Policy | Cilium NP | Azure NP 또는 Calico |
+| eBPF 기반 성능 | ✅ | ❌ |
 
 **Cilium BYO 제한사항**:
 - Windows 노드 풀 미지원
 - Azure Network Policy 미지원
 - 일부 Azure 네트워크 기능 제한
 
-> 📎 **구현**: [IMPLEMENTATION-AZURE.md §4](IMPLEMENTATION-AZURE.md#4-네트워크-설정)
+> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §4](IMPLEMENTATION-GUIDE.md#4-네트워크-설정)
 
 ### ADR-A03: 시크릿 관리 - Azure Key Vault
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | 로컬의 Vault를 Azure에서 무엇으로 대체할 것인가 |
+| **컨텍스트** | Azure 네이티브 시크릿 관리 서비스 선택 |
 | **결정** | Azure Key Vault + External Secrets (또는 CSI Driver) |
-| **트레이드오프** | Vault의 동적 시크릿 생성 기능은 미지원 |
+| **트레이드오프** | 동적 시크릿 생성 기능은 미지원, 관리형 서비스로 운영 부담 최소화 |
 
 **인증 방식**:
 
@@ -130,7 +129,7 @@ Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축합니다
 | **Workload Identity** | Federated Credential | 프로덕션 (권장) |
 | **Managed Identity** | VM 할당 | 레거시 호환 |
 
-> 📎 **구현**: [IMPLEMENTATION-AZURE.md §5](IMPLEMENTATION-AZURE.md#5-azure-key-vault-연동)
+> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §5](IMPLEMENTATION-GUIDE.md#5-azure-key-vault-연동)
 
 ### ADR-A04: Private Cluster 구성
 
@@ -140,7 +139,7 @@ Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축합니다
 | **컨텍스트** | API Server 노출 방식 |
 | **결정** | 시연: Public API + NSG 제한 / 프로덕션: Private Cluster |
 
-> 📎 **구현**: [IMPLEMENTATION-AZURE.md §3.1](IMPLEMENTATION-AZURE.md#31-aks-모듈)
+> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §3.1](IMPLEMENTATION-GUIDE.md#31-aks-모듈)
 
 ### 아키텍처 불변 조건 (Architecture Contract)
 
@@ -205,18 +204,6 @@ flowchart TB
 | **AKS-app1** | Standard_D2s_v3 | 2 | Spot |
 | **AKS-app2** | Standard_D2s_v3 | 2 | Spot |
 
-### 3.3 로컬 vs Azure 매핑
-
-| 로컬 (Multipass) | Azure |
-|-----------------|-------|
-| Multipass VM | Azure VM (Spot) |
-| kubeadm 클러스터 | AKS |
-| Cilium CNI | Azure CNI 또는 Cilium (BYO) |
-| MetalLB | Azure Load Balancer |
-| Harbor (Docker) | Azure Container Registry |
-| Vault | Azure Key Vault |
-| Prometheus/Loki | Azure Monitor |
-
 ---
 
 ## 4. 네트워크 아키텍처
@@ -267,13 +254,13 @@ flowchart LR
 
 ## 5. 스토리지 아키텍처
 
-### 5.1 StorageClass 매핑
+### 5.1 Azure StorageClass
 
-| 로컬 | Azure | 성능 |
-|-----|-------|------|
-| local-path | Azure Disk (Standard) | 500 IOPS |
-| local-path-retain | Azure Disk (Premium) | 5000+ IOPS |
-| - | Azure Files | 공유 스토리지 |
+| StorageClass | 성능 | 용도 |
+|-------------|------|------|
+| **managed** (Azure Disk Standard) | 500 IOPS | 일반 워크로드 |
+| **managed-premium** (Azure Disk Premium) | 5000+ IOPS | 고성능 워크로드 |
+| **azurefile** (Azure Files) | 공유 스토리지 | 멀티 Pod 동시 마운트 |
 
 ### 5.2 워크로드별 스토리지
 
@@ -493,45 +480,9 @@ flowchart TB
 
 ---
 
-## 부록 A: 로컬 → Azure 환경 매핑
-
-> 로컬(Multipass) 환경에서 검증된 구성을 Azure로 전환할 때 참조하세요.
-
-### 인프라 컴포넌트 매핑
-
-| 로컬 (Multipass) | Azure | 변경 사항 |
-|-----------------|-------|----------|
-| Multipass VM | AKS Node Pool (Spot) | VM 크기: Standard_D2s_v3 |
-| kubeadm 클러스터 | AKS (관리형) | Control Plane Azure 관리 |
-| Cilium CNI | Cilium BYO 또는 Azure CNI | BYO 시 `--network-plugin=none` |
-| MetalLB (L2) | Azure Load Balancer | Standard SKU 자동 할당 |
-| local-path PV | Azure Disk | managed / managed-premium |
-
-### 플랫폼 서비스 매핑
-
-| 로컬 | Azure | 비고 |
-|-----|-------|------|
-| Vault (Self-hosted) | Azure Key Vault | 동적 시크릿 미지원 |
-| Prometheus + Thanos | Azure Monitor (Container Insights) | 또는 Self-hosted 유지 |
-| Loki | Azure Monitor Logs | 또는 Self-hosted 유지 |
-| Harbor (Docker) | Azure Container Registry (ACR) | Premium SKU 권장 |
-| MinIO | Azure Blob Storage | Velero backend 변경 |
-
-### 환경 변수 / 설정 매핑
-
-| 설정 항목 | 로컬 값 | Azure 값 |
-|----------|--------|---------|
-| `VAULT_ADDR` | `http://vault.vault:8200` | Key Vault URI |
-| `ESO_PROVIDER` | `vault` | `azurekv` |
-| `BACKUP_STORAGE` | `s3://minio` | `azure://blob` |
-| `REGISTRY_URL` | `harbor.local:8443` | `<acr-name>.azurecr.io` |
-
----
-
-## 부록 B: 관련 문서
+## 부록: 관련 문서
 
 | 문서 | 설명 |
 |-----|------|
-| [IMPLEMENTATION-AZURE.md](IMPLEMENTATION-AZURE.md) | Terraform, AKS 설정 코드 |
-| [RUNBOOK-AZURE.md](RUNBOOK-AZURE.md) | 백업/복구/업그레이드 절차 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 로컬 환경 아키텍처 |
+| [IMPLEMENTATION-GUIDE.md](IMPLEMENTATION-GUIDE.md) | Terraform, AKS 설정 코드 |
+| [OPERATIONS-RUNBOOK.md](OPERATIONS-RUNBOOK.md) | 백업/복구/업그레이드 절차 |

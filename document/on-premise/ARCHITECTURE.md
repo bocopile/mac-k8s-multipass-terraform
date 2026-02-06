@@ -628,6 +628,3 @@ flowchart TB
 |-----|------|
 | [IMPLEMENTATION-GUIDE.md](IMPLEMENTATION-GUIDE.md) | Terraform, Helm, 설치 코드 |
 | [OPERATIONS-RUNBOOK.md](OPERATIONS-RUNBOOK.md) | 백업/복구/업그레이드 절차 |
-| [ARCHITECTURE-AZURE.md](ARCHITECTURE-AZURE.md) | Azure 클라우드 버전 아키텍처 |
-
-> 📌 **Azure 전환 시**: [ARCHITECTURE-AZURE.md 부록 A](ARCHITECTURE-AZURE.md#부록-a-로컬--azure-환경-매핑)에서 컴포넌트별 매핑 테이블을 참조하세요.
