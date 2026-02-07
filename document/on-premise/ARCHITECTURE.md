@@ -157,11 +157,11 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | # | 불변 조건 | 근거 ADR |
 |---|----------|----------|
 | **C1** | mgmt 클러스터 장애 시에도 app 클러스터 워크로드는 **독립 실행** 지속 | ADR-001 |
-| **C2** | app 클러스터의 Prometheus Agent는 **최소 2.7시간** 로컬 버퍼링 보장 | ADR-006 |
+| **C2** | app 클러스터의 Prometheus Agent는 WAL 로컬 버퍼링 유지 (내 환경 기준 **~2.7시간**, 수집량/디스크에 따라 변동) | ADR-006 |
 | **C3** | External Secrets는 **refreshInterval 1h** 캐시로 Vault 장애 시에도 동작 | ADR-001 |
 | **C4** | Kyverno는 **app 클러스터에만** enforce 모드로 배치 (mgmt 제외) | ADR-003 |
 | **C5** | PKI 부트스트랩은 **2-Phase** (Self-signed → Vault Issuer) 순서 준수 | ADR-004 |
-| **C6** | Cilium은 **Tunneling(VXLAN)** 모드로 동작 (Native Routing 금지) | ADR-005 |
+| **C6** | Cilium은 **Tunneling(VXLAN)** 모드로 동작 (Multipass 환경에서 Native Routing 구성 복잡도가 높아 선택) | ADR-005 |
 
 ---
 
@@ -238,8 +238,8 @@ flowchart TB
 | 클러스터 | 역할 | 컴포넌트 |
 |---------|------|---------|
 | **mgmt** | 플랫폼 서비스 | Vault, Prometheus, Thanos, Loki, Grafana, Velero, MinIO, k8sgpt |
-| **app1** | 워크로드 A | 애플리케이션, Prom Agent, Promtail, Kyverno, Falco |
-| **app2** | 워크로드 B | 애플리케이션, Prom Agent, Promtail, Kyverno, Falco |
+| **app1** | 워크로드 A | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
+| **app2** | 워크로드 B | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
 
 ### 4.3 클러스터 스펙
 
@@ -481,7 +481,7 @@ flowchart LR
 
 | 컴포넌트 | 동작 | 버퍼 시간 |
 |---------|------|----------|
-| **Prometheus Agent** | 로컬 버퍼링, 복구 후 재전송 | ~2.7시간 |
+| **Prometheus Agent** | 로컬 버퍼링, 복구 후 재전송 | ~2.7시간 (내 환경 기준, 변동 가능) |
 | **Promtail** | positions 파일 + 버퍼 | 디스크 용량만큼 |
 | **External Secrets** | 캐시된 시크릿 유지 | refreshInterval (1h) |
 
@@ -617,7 +617,7 @@ flowchart TB
 | Thanos | 100m / 256Mi | 500m / 1Gi | mgmt |
 | Loki | 100m / 256Mi | 500m / 1Gi | mgmt |
 | Grafana | 100m / 128Mi | 500m / 512Mi | mgmt |
-| Prom Agent | 50m / 128Mi | 200m / 256Mi | app |
+| Prometheus Agent | 50m / 128Mi | 200m / 256Mi | app |
 | Promtail | 50m / 64Mi | 100m / 128Mi | app |
 
 ---
