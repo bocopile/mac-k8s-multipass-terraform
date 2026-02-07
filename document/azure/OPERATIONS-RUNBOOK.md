@@ -40,6 +40,7 @@ kubectl get pods -n kube-system
 kubectl top nodes
 
 # Container Insights 대시보드
+# Container Insights (AMA) 상태 확인
 az aks show --resource-group rg-k8s-demo --name aks-mgmt --query addonProfiles.omsagent
 ```
 

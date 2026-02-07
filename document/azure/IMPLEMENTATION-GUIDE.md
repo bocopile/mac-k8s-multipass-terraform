@@ -121,6 +121,8 @@ resource "azurerm_kubernetes_cluster" "main" {
     network_policy = "azure"
   }
 
+  # Azure Monitor Agent (AMA) - Container Insights 연동
+  # AzureRM provider에서는 oms_agent 블록으로 설정
   oms_agent {
     log_analytics_workspace_id = var.log_analytics_workspace_id
   }
@@ -188,14 +190,28 @@ resource "azurerm_subnet" "aks_app1" {
 }
 ```
 
-### 4.2 VNet Peering
+### 4.2 NSG (Subnet 간 트래픽 제어)
+
+단일 VNet 내 Subnet 간에는 기본적으로 라우팅이 가능하므로 VNet Peering은 불필요합니다.
+NSG로 Subnet 간 트래픽을 제어합니다:
 
 ```hcl
-resource "azurerm_virtual_network_peering" "mgmt_to_app1" {
-  name                      = "mgmt-to-app1"
-  resource_group_name       = var.resource_group_name
-  virtual_network_name      = azurerm_virtual_network.mgmt.name
-  remote_virtual_network_id = azurerm_virtual_network.app1.id
+resource "azurerm_network_security_group" "aks_mgmt" {
+  name                = "nsg-aks-mgmt"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+
+  security_rule {
+    name                       = "allow-app-subnets"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "*"
+    source_address_prefixes    = ["10.2.0.0/16", "10.3.0.0/16"]
+    destination_address_prefix = "10.1.0.0/16"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+  }
 }
 ```
 

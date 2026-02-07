@@ -71,7 +71,7 @@ Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축합니다
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | Spot VM은 70% 저렴하나 회수(eviction) 가능 |
+| **컨텍스트** | Spot VM은 최대 ~70% 저렴하나 회수(eviction) 가능 (할인폭은 SKU/리전/시점에 따라 변동) |
 | **결정** | 워크로드를 Tier 0/1/2로 분류하여 배치 |
 | **적용 환경** | 🎯 시연/개발 환경 - 비용 최소화 우선 |
 
@@ -217,16 +217,18 @@ flowchart TB
 | Subnet-app2 | 10.3.0.0/16 | AKS-app2 노드 |
 | Subnet-services | 10.4.0.0/24 | 관리형 서비스 (Key Vault, ACI) |
 
-### 4.2 VNet Peering
+### 4.2 Subnet 간 통신
+
+단일 VNet 내 Subnet 간에는 기본적으로 라우팅이 가능하며, **NSG(Network Security Group)**로 트래픽을 제어합니다:
 
 ```mermaid
 flowchart LR
-    mgmt["AKS-mgmt"]
-    app1["AKS-app1"]
-    app2["AKS-app2"]
+    mgmt["AKS-mgmt<br/>(Subnet-mgmt)"]
+    app1["AKS-app1<br/>(Subnet-app1)"]
+    app2["AKS-app2<br/>(Subnet-app2)"]
 
-    mgmt <-->|"Peering"| app1
-    mgmt <-->|"Peering"| app2
+    mgmt <-->|"NSG 허용"| app1
+    mgmt <-->|"NSG 허용"| app2
     app1 <-.->|"선택적"| app2
 
     style mgmt fill:#e8f5e9
@@ -338,13 +340,13 @@ flowchart LR
 flowchart TB
     subgraph Clusters["AKS 클러스터"]
         subgraph mgmt["AKS-mgmt"]
-            oms1["OMS Agent"]
+            ama1["AMA"]
         end
         subgraph app1["AKS-app1"]
-            oms2["OMS Agent"]
+            ama2["AMA"]
         end
         subgraph app2["AKS-app2"]
-            oms3["OMS Agent"]
+            ama3["AMA"]
         end
     end
 
@@ -358,9 +360,9 @@ flowchart TB
         Alert["Alert Rules"]
     end
 
-    oms1 --> LAW
-    oms2 --> LAW
-    oms3 --> LAW
+    ama1 --> LAW
+    ama2 --> LAW
+    ama3 --> LAW
 
     LAW --> Grafana
     LAW --> Monitor
@@ -422,8 +424,9 @@ flowchart TB
 
 ### 8.3 Spot VM 회수 대응
 
-- 30초 전 알림 → Node Drain → 새 노드 프로비저닝
-- PodDisruptionBudget으로 최소 가용성 보장
+- 30초 전 알림 → Node Drain → 새 노드 프로비저닝 (30초 내 Drain 미완료 시 강제 종료 가능)
+- PodDisruptionBudget + 다중 레플리카로 최소 가용성 보장 필수
+- 중요 워크로드는 On-Demand 노드에 배치하여 회수 영향 차단
 
 ---
 
@@ -434,7 +437,7 @@ flowchart TB
 | 항목 | 월 비용 | 비고 |
 |-----|--------|------|
 | AKS Control Plane | 무료 | Free Tier |
-| VM (Spot 5노드) | ~$50 | 70% 할인 |
+| VM (Spot 5노드) | ~$50 | 최대 ~70% 할인 (변동) |
 | Azure Disk (50GB) | ~$5 | Standard SSD |
 | Log Analytics | ~$5 | 5GB/일 제한 |
 | Key Vault | ~$1 | 기본 사용량 |
@@ -444,7 +447,7 @@ flowchart TB
 
 | 전략 | 절감 효과 |
 |-----|----------|
-| Spot VM 사용 | ~70% |
+| Spot VM 사용 | 최대 ~70% (변동) |
 | 비업무시간 클러스터 중지 | ~60% 추가 |
 | AKS Free Tier | Control Plane 무료 |
 | Log Analytics 수집 제한 | 예상치 못한 비용 방지 |
