@@ -39,8 +39,8 @@ kubectl get pods -n kube-system
 # 노드 리소스
 kubectl top nodes
 
-# Container Insights 대시보드
-# Container Insights (AMA) 상태 확인
+# Container Insights 상태 확인
+# AKS API에서 AMA도 omsagent 필드로 조회
 az aks show --resource-group rg-k8s-demo --name aks-mgmt --query addonProfiles.omsagent
 ```
 
@@ -64,9 +64,10 @@ az aks show --resource-group rg-k8s-demo --name aks-mgmt --query powerState
 ### 2.1 Azure Backup for AKS
 
 ```bash
-# 백업 Extension 설치 확인
-az aks show --resource-group rg-k8s-demo --name aks-mgmt \
-  --query "addonProfiles.azureKeyvaultSecretsProvider"
+# 백업 인스턴스 상태 확인
+az dataprotection backup-instance list \
+  --resource-group rg-k8s-demo \
+  --vault-name rsv-k8s-backup -o table
 
 # 백업 트리거 (Azure Portal 또는 CLI)
 az dataprotection backup-instance adhoc-backup \

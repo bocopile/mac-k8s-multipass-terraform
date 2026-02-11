@@ -117,12 +117,12 @@ resource "azurerm_kubernetes_cluster" "main" {
   }
 
   network_profile {
-    network_plugin = "azure"  # 또는 "none" for BYO CNI
-    network_policy = "azure"
+    network_plugin = "none"  # Cilium BYO CNI (ADR-A02)
   }
 
-  # Azure Monitor Agent (AMA) - Container Insights 연동
-  # AzureRM provider에서는 oms_agent 블록으로 설정
+  # Container Insights 연동
+  # AzureRM 3.x: oms_agent 블록 사용 (내부적으로 AMA 프로비저닝)
+  # AzureRM 4.x+: monitor_metrics 블록으로 변경됨
   oms_agent {
     log_analytics_workspace_id = var.log_analytics_workspace_id
   }

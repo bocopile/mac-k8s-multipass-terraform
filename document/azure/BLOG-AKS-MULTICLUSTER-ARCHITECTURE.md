@@ -1,10 +1,10 @@
-# [K8s 아키텍처] AKS 멀티클러스터 설계: Azure 클라우드 환경
+# [K8s 아키텍처] AKS 멀티클러스터 설계 Azure 클라우드 환경
 
 ## 0. 개념 요약
 
 **멀티클러스터 아키텍처**란 단일 Kubernetes 클러스터 대신 **역할별로 분리된 여러 클러스터**를 운영하는 패턴입니다.
 
-이 글에서는 다음 내용을 다룹니다:
+이 글에서는 다음 내용을 다룹니다
 - **AKS 기반 mgmt + app 분리 구조** 설계
 - **Spot VM Tier 전략**으로 비용 최적화
 - Azure 네이티브 서비스(Key Vault, Monitor, ACR) 활용
@@ -23,7 +23,7 @@
 
 ### 1.1 단일 클러스터의 한계
 
-단일 AKS 클러스터에서 플랫폼 서비스와 애플리케이션을 함께 운영하면 다음 문제가 발생합니다:
+단일 AKS 클러스터에서 플랫폼 서비스와 애플리케이션을 함께 운영하면 다음 문제가 발생합니다
 
 | 문제 | 설명 |
 |-----|------|
@@ -34,7 +34,7 @@
 
 ### 1.2 역할 기반 분리 (mgmt + app)
 
-이 문제를 해결하기 위해 **역할 기반 클러스터 분리**를 적용합니다:
+이 문제를 해결하기 위해 **역할 기반 클러스터 분리**를 적용합니다
 
 ```mermaid
 flowchart TB
@@ -72,15 +72,15 @@ flowchart TB
 | **AKS-mgmt** | 플랫폼 서비스 | Prometheus, ArgoCD, Grafana |
 | **AKS-app1/app2** | 워크로드 | 애플리케이션, AMA |
 
-**결론**: 플랫폼 서비스와 워크로드를 분리하여 **장애 전파를 차단**합니다.
+**결론** 플랫폼 서비스와 워크로드를 분리하여 **장애 전파를 차단**합니다.
 
 ---
 
 ## 2. 핵심 설계 결정 (ADR)
 
-### 2.1 ADR-A01: Spot VM Tier 전략
+### 2.1 ADR-A01 Spot VM Tier 전략
 
-Azure Spot VM은 정가 대비 **최대 ~70% 저렴**하지만 회수(eviction) 가능성이 있습니다 (할인폭은 SKU/리전/시점에 따라 변동). 워크로드를 **Tier로 분류**하여 배치합니다:
+Azure Spot VM은 정가 대비 **최대 ~70% 저렴**하지만 회수(eviction) 가능성이 있습니다 (할인폭은 SKU/리전/시점에 따라 변동). 워크로드를 **Tier로 분류**하여 배치합니다
 
 | Tier | 워크로드 | 시연 환경 | 프로덕션 권장 |
 |-----|---------|----------|-------------|
@@ -88,7 +88,7 @@ Azure Spot VM은 정가 대비 **최대 ~70% 저렴**하지만 회수(eviction) 
 | **Tier 1** | mgmt 워크로드 (Prometheus, ArgoCD) | Spot VM | On-Demand |
 | **Tier 2** | app 워크로드 (애플리케이션) | Spot VM | Spot VM |
 
-> **주의**: 외부 시연/라이브 데모라면 **mgmt(Tier 1)는 On-Demand 권장**합니다. Spot VM 회수 시 Grafana, ArgoCD 대시보드가 함께 내려가면 데모가 중단됩니다.
+> **주의** 외부 시연/라이브 데모라면 **mgmt(Tier 1)는 On-Demand 권장**합니다. Spot VM 회수 시 Grafana, ArgoCD 대시보드가 함께 내려가면 데모가 중단됩니다.
 
 ```hcl
 # AKS Spot Node Pool (Terraform)
@@ -112,28 +112,28 @@ resource "azurerm_kubernetes_cluster_node_pool" "spot" {
 }
 ```
 
-### 2.2 ADR-A02: CNI 선택 - Cilium BYO vs Azure CNI
+### 2.2 ADR-A02 CNI 선택 - Cilium BYO vs Azure CNI
 
-멀티클러스터 서비스 디스커버리와 Azure 네이티브 통합 사이에서 트레이드오프가 존재합니다:
+멀티클러스터 서비스 디스커버리와 Azure 네이티브 통합 사이에서 트레이드오프가 존재합니다
 
-| 항목 | Cilium (BYO) | Azure CNI |
-|-----|-------------|-----------|
-| Cluster Mesh | 지원 | 미지원 |
-| Azure 네이티브 통합 | 제한적 | 완전 지원 |
-| eBPF 기반 성능 | 지원 | 미지원 |
-| Network Policy | Cilium NP | Azure NP / Calico |
+| 항목 | Cilium (BYO) | Azure CNI Powered by Cilium | Azure CNI |
+|-----|-------------|---------------------------|-----------|
+| Cluster Mesh | 자유 구성 | 제한적 | 미지원 |
+| Azure 네이티브 통합 | 제한적 | 지원 | 완전 지원 |
+| eBPF 기반 성능 | 지원 | 지원 | 미지원 |
+| Network Policy | Cilium NP | Cilium NP | Azure NP / Calico |
 
-> **결정**: Cilium BYO를 기본으로 선택. Cluster Mesh가 멀티클러스터에서 핵심 기능이며, eBPF 기반의 성능 이점이 크기 때문.
+> **결정** Cilium BYO를 기본으로 선택. Azure CNI Powered by Cilium 옵션도 있으나, Cluster Mesh의 자유로운 구성을 위해 BYO를 선택.
 
-### 2.3 ADR-A03: Azure Key Vault + Workload Identity
+### 2.3 ADR-A03 Azure Key Vault + Workload Identity
 
-Azure 네이티브 시크릿 관리를 위해 Key Vault와 Workload Identity를 결합합니다:
+Azure 네이티브 시크릿 관리를 위해 Key Vault와 Workload Identity를 결합합니다
 
 | 항목 | 내용 |
 |-----|------|
 | **시크릿 저장소** | Azure Key Vault (SLA 99.99%) |
 | **인증** | Workload Identity (Federated Credential) |
-| **K8s 연동** | External Secrets Operator 또는 CSI Driver |
+| **K8s 연동** | External Secrets Operator (캐싱 기반 장애 대응, CSI Driver 대비 운영 유연성 확보) |
 | **장애 대응** | External Secrets 캐시로 Key Vault 장애 시에도 기존 시크릿 유지 |
 
 ```mermaid
@@ -148,13 +148,22 @@ flowchart LR
     KV --> ESO --> Secret
 ```
 
+### 2.4 ADR-A04 Private Cluster 구성
+
+| 항목 | 내용 |
+|-----|------|
+| **컨텍스트** | API Server 노출 방식 선택 |
+| **결정** | 시연 Public API + NSG 제한 / 프로덕션 Private Cluster |
+
+> **시연 환경**에서는 접근 편의를 위해 Public API를 사용하되 NSG로 접근을 제한합니다. **프로덕션**에서는 반드시 Private Cluster로 전환하여 API Server를 VNet 내부에서만 접근 가능하도록 합니다.
+
 ---
 
 ## 3. 네트워크 아키텍처
 
 ### 3.1 VNet 설계
 
-모든 AKS 클러스터는 단일 VNet 내 별도 Subnet에 배치됩니다:
+모든 AKS 클러스터는 단일 VNet 내 별도 Subnet에 배치됩니다
 
 | Subnet | CIDR | 용도 |
 |--------|------|------|
@@ -165,7 +174,7 @@ flowchart LR
 
 ### 3.2 Subnet 간 통신
 
-단일 VNet 내 Subnet 간에는 기본적으로 라우팅이 가능하며, **NSG(Network Security Group)**로 트래픽을 제어합니다:
+단일 VNet 내 Subnet 간에는 기본적으로 라우팅이 가능하며, **NSG(Network Security Group)**로 트래픽을 제어합니다
 
 ```mermaid
 flowchart LR
@@ -180,9 +189,16 @@ flowchart LR
 
 ---
 
-## 4. 관찰성: Azure Monitor + Container Insights
+## 4. 관찰성 Azure Monitor + OSS Prometheus 이중 구조
 
-Azure 네이티브 관찰성 스택을 활용합니다:
+Azure 네이티브와 OSS 도구를 역할별로 분리하여 사용합니다
+
+| 계층 | 도구 | 역할 |
+|-----|------|------|
+| **인프라 메트릭/로그** | AMA → Log Analytics | 노드, 컨테이너 수준 모니터링 (Container Insights) |
+| **애플리케이션 메트릭** | OSS Prometheus (mgmt) | 커스텀 메트릭, ServiceMonitor 기반 수집 |
+
+> **왜 이중 구조?** Azure Managed Prometheus는 수집량 기반 과금이라 시연 환경에서 비용이 불필요하게 증가합니다. 인프라는 AMA(무료 티어 범위)로, 앱 메트릭은 mgmt 클러스터 내 OSS Prometheus로 처리하여 비용을 최소화합니다.
 
 ```mermaid
 flowchart TB
@@ -220,7 +236,7 @@ flowchart TB
 
 | 항목 | 월 비용 | 비고 |
 |-----|--------|------|
-| AKS Control Plane | 무료 | Free Tier |
+| AKS Control Plane | 무료 | Free tier (Standard/Premium tier는 별도 과금) |
 | VM (Spot 5노드) | ~$50 | Standard_D2s_v3, 최대 ~70% 할인 (변동) |
 | Azure Disk (50GB) | ~$5 | Standard SSD |
 | Log Analytics | ~$5 | 5GB/일 제한 |
@@ -242,7 +258,7 @@ flowchart TB
 |-----|----------|------|
 | mgmt를 On-Demand로 | +$50-80/월 | 플랫폼 안정성 |
 | 멀티 AZ 구성 | +$30-50/월 | 가용성 향상 |
-| AKS Uptime SLA | +$75/월 | 99.95% SLA |
+| AKS Uptime SLA (Standard tier) | +$73/월 ($0.10/cluster/hour) | 99.95% SLA |
 
 ---
 
@@ -250,13 +266,13 @@ flowchart TB
 
 ### 6.1 Spot VM 회수 대응
 
-Spot VM은 Azure가 용량 필요 시 30초 전 알림 후 회수합니다:
+Spot VM은 Azure가 용량 필요 시 30초 전 알림 후 회수합니다
 
 - **30초 전 알림** → Node Drain → 새 노드 프로비저닝 (Cluster Autoscaler)
 - 30초는 Drain 완료에 충분하지 않을 수 있으며, 즉시 축출되는 경우도 존재
 - **PodDisruptionBudget + 다중 레플리카**로 최소 가용성 보장 필수
 - 중요 워크로드는 On-Demand 노드에 배치하여 회수 영향 차단
-- **Tier 1 워크로드**: 프로덕션에서는 On-Demand로 전환 권장
+- **Tier 1 워크로드** 프로덕션에서는 On-Demand로 전환 권장
 
 ### 6.2 장애 영향 매트릭스
 
@@ -271,7 +287,7 @@ Spot VM은 Azure가 용량 필요 시 30초 전 알림 후 회수합니다:
 
 ## 7. 아키텍처 불변 조건 (Architecture Contract)
 
-구현이 변경되더라도 **반드시 유지**되어야 하는 조건을 명시합니다:
+구현이 변경되더라도 **반드시 유지**되어야 하는 조건을 명시합니다
 
 | # | 불변 조건 | 근거 |
 |---|----------|------|
@@ -279,7 +295,8 @@ Spot VM은 Azure가 용량 필요 시 30초 전 알림 후 회수합니다:
 | **C2** | 시연 환경에서 User Node Pool은 Spot VM 사용 | ADR-A01 |
 | **C3** | 프로덕션 전환 시 Tier 1은 On-Demand로 변경 권장 | ADR-A01 |
 | **C4** | 시크릿은 Azure Key Vault + Workload Identity로 관리 | ADR-A03 |
-| **C5** | External Secrets 캐시로 Key Vault 장애 시에도 기존 시크릿 유지 | ADR-A03 |
+| **C5** | 시연 환경은 Public API + NSG 제한, 프로덕션은 Private Cluster | ADR-A04 |
+| **C6** | External Secrets 캐시로 Key Vault 장애 시에도 기존 시크릿 유지 | ADR-A03 |
 
 ---
 
@@ -287,7 +304,7 @@ Spot VM은 Azure가 용량 필요 시 30초 전 알림 후 회수합니다:
 
 > **이 글의 핵심 3줄**
 > 1. **AKS 멀티클러스터 = 장애 격리 + 비용 최적화**. mgmt와 app을 분리하고 Spot VM Tier 전략 적용
-> 2. **Azure 네이티브 서비스** 활용: Key Vault, Monitor, ACR로 운영 부담 최소화
+> 2. **Azure 네이티브 서비스** 활용 Key Vault, Monitor, ACR로 운영 부담 최소화
 > 3. **시연 환경 월 $60-80**, 프로덕션은 Tier 1 On-Demand 전환으로 안정성 확보
 
 | 환경 | 주요 특징 |
@@ -295,7 +312,7 @@ Spot VM은 Azure가 용량 필요 시 30초 전 알림 후 회수합니다:
 | **시연/개발** | Spot VM 전체, 월 $60-80, 비업무시간 중지로 추가 절감 |
 | **프로덕션** | mgmt On-Demand, 멀티 AZ, Uptime SLA 추가 |
 
-**이 구조를 선택한 이유**:
+**이 구조를 선택한 이유**
 - **비용 민감** → Spot VM Tier 전략으로 최대 ~70% 절감
 - **Azure 네이티브** → Key Vault, Monitor로 자체 운영 컴포넌트 최소화
 - **멀티클러스터** → 플랫폼 장애가 워크로드에 전파되지 않도록 격리
@@ -314,4 +331,4 @@ Spot VM은 Azure가 용량 필요 시 30초 전 알림 후 회수합니다:
 
 ---
 
-**태그**: `#Kubernetes` `#AKS` `#Azure` `#MultiCluster` `#SpotVM` `#PlatformEngineering` `#CostOptimization`
+**태그** `#Kubernetes` `#AKS` `#Azure` `#MultiCluster` `#SpotVM` `#PlatformEngineering` `#CostOptimization`

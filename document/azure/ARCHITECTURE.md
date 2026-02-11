@@ -59,7 +59,7 @@ Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축합니다
 | **CNI** | Cilium (BYO) 또는 Azure CNI |
 | **시크릿** | Azure Key Vault + External Secrets |
 | **관찰성** | Azure Monitor + Container Insights |
-| **GitOps** | ArgoCD (AKS 내 또는 ACI) |
+| **GitOps** | ArgoCD (AKS-mgmt) |
 | **백업** | Azure Backup for AKS + Velero |
 
 ---
@@ -99,12 +99,12 @@ Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축합니다
 
 **비교**:
 
-| 항목 | Cilium (BYO) | Azure CNI |
-|-----|-------------|-----------|
-| Cluster Mesh | ✅ 지원 | ❌ 미지원 |
-| Azure 네이티브 통합 | 제한적 (BYO) | ✅ 완전 지원 |
-| Network Policy | Cilium NP | Azure NP 또는 Calico |
-| eBPF 기반 성능 | ✅ | ❌ |
+| 항목 | Cilium (BYO) | Azure CNI Powered by Cilium | Azure CNI |
+|-----|-------------|---------------------------|-----------|
+| Cluster Mesh | ✅ 자유 구성 | 제한적 | ❌ 미지원 |
+| Azure 네이티브 통합 | 제한적 (BYO) | ✅ 지원 | ✅ 완전 지원 |
+| eBPF 기반 성능 | ✅ | ✅ | ❌ |
+| Network Policy | Cilium NP | Cilium NP | Azure NP 또는 Calico |
 
 **Cilium BYO 제한사항**:
 - Windows 노드 풀 미지원
@@ -119,7 +119,7 @@ Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축합니다
 |-----|------|
 | **상태** | Accepted |
 | **컨텍스트** | Azure 네이티브 시크릿 관리 서비스 선택 |
-| **결정** | Azure Key Vault + External Secrets (또는 CSI Driver) |
+| **결정** | Azure Key Vault + External Secrets Operator (캐싱 기반 장애 대응, CSI Driver 대비 운영 유연성 확보) |
 | **트레이드오프** | 동적 시크릿 생성 기능은 미지원, 관리형 서비스로 운영 부담 최소화 |
 
 **인증 방식**:
@@ -167,6 +167,7 @@ flowchart TB
             subgraph VNet["VNet: 10.0.0.0/8"]
                 subgraph SubnetMgmt["Subnet-mgmt<br/>10.1.0.0/16"]
                     AKSmgmt["AKS-mgmt<br/>User Pool: Spot VM<br/>1 Node (Tier 1)"]
+                    MgmtArgoCD["ArgoCD"]
                 end
 
                 subgraph SubnetApp1["Subnet-app1<br/>10.2.0.0/16"]
@@ -179,8 +180,7 @@ flowchart TB
 
                 subgraph SubnetSvc["Subnet-services: 10.4.0.0/24"]
                     KeyVault["Key Vault"]
-                    ArgoCD["ArgoCD<br/>(ACI)"]
-                    ACR["Harbor<br/>(ACR)"]
+                    ACR["ACR"]
                 end
             end
         end
@@ -436,7 +436,7 @@ flowchart TB
 
 | 항목 | 월 비용 | 비고 |
 |-----|--------|------|
-| AKS Control Plane | 무료 | Free Tier |
+| AKS Control Plane | 무료 | Free tier (Standard/Premium tier는 별도 과금) |
 | VM (Spot 5노드) | ~$50 | 최대 ~70% 할인 (변동) |
 | Azure Disk (50GB) | ~$5 | Standard SSD |
 | Log Analytics | ~$5 | 5GB/일 제한 |
@@ -458,7 +458,7 @@ flowchart TB
 |-----|----------|------|
 | mgmt를 On-Demand로 | +$50-80/월 | 플랫폼 안정성 |
 | 멀티 AZ 구성 | +$30-50/월 | 가용성 향상 |
-| AKS Uptime SLA | +$75/월 | 99.95% SLA |
+| AKS Uptime SLA (Standard tier) | +$73/월 ($0.10/cluster/hour) | 99.95% SLA |
 
 ---
 
