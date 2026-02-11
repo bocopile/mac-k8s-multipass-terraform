@@ -60,7 +60,7 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | **인프라** | Multipass, Terraform, cloud-init |
 | **쿠버네티스** | kubeadm v1.35, containerd |
 | **네트워크** | Cilium + Cluster Mesh + Gateway API |
-| **GitOps** | ArgoCD (외부 Docker) |
+| **GitOps** | ArgoCD (mgmt 클러스터) |
 | **시크릿/PKI** | Vault + External Secrets + cert-manager |
 | **관찰성** | Prometheus + Thanos + Loki + Grafana |
 | **보안** | PSA + Kyverno + Falco |
@@ -93,9 +93,9 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | K8s 1.35의 InPlacePodVerticalScaling 등 실험적 기능 활용 여부 |
-| **결정** | Feature-gate는 **옵션**으로 분리, 기본 아키텍처는 VPA만으로 동작 |
-| **결과** | 업그레이드 호환성 확보, 실험 기능은 별도 프로파일로 제공 |
+| **컨텍스트** | K8s 1.35에서 InPlacePodVerticalScaling이 GA 졸업, 활용 여부 결정 필요 |
+| **결정** | InPlacePodVerticalScaling GA 기능을 활용하되, 기본 아키텍처는 VPA만으로도 동작하도록 설계 |
+| **결과** | VPA InPlaceOrRecreate 모드(Beta) 활용 가능, 미사용 시에도 기존 VPA Recreate로 동작 |
 
 > 📎 **구현**: [IMPLEMENTATION-GUIDE.md §2.3](IMPLEMENTATION-GUIDE.md#23-kubeadm-설정)
 
@@ -182,7 +182,7 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 
 | 구성요소 | RAM | 용도 |
 |---------|-----|------|
-| 외부 서비스 (Docker) | 6GB | ArgoCD, Harbor, Nexus |
+| 외부 서비스 (Docker) | 6GB | Harbor, Nexus |
 | mgmt 클러스터 | 10GB | 플랫폼 서비스 |
 | app1 클러스터 | 7GB | 워크로드 |
 | app2 클러스터 | 7GB | 워크로드 |
@@ -198,7 +198,6 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 flowchart TB
     subgraph Host["macOS 호스트 (Mac Studio M1 Max)"]
         subgraph Docker["Docker Desktop"]
-            ArgoCD["ArgoCD<br/>:8080"]
             Harbor["Harbor<br/>:8443"]
             Nexus["Nexus<br/>:8081"]
         end
@@ -207,6 +206,7 @@ flowchart TB
             subgraph mgmt["mgmt 클러스터<br/>10GB RAM"]
                 mgmt-cp["Control Plane"]
                 mgmt-worker["Worker"]
+                mgmt-argocd["ArgoCD"]
             end
 
             subgraph app1["app1 클러스터<br/>7GB RAM"]
@@ -237,7 +237,7 @@ flowchart TB
 
 | 클러스터 | 역할 | 컴포넌트 |
 |---------|------|---------|
-| **mgmt** | 플랫폼 서비스 | Vault, Prometheus, Thanos, Loki, Grafana, Velero, MinIO, k8sgpt |
+| **mgmt** | 플랫폼 서비스 | Vault, Prometheus, Thanos, Loki, Grafana, Velero, MinIO, k8sgpt, ArgoCD |
 | **app1** | 워크로드 A | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
 | **app2** | 워크로드 B | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
 
@@ -271,17 +271,17 @@ flowchart TB
     subgraph Bridge["Multipass 브리지 (192.168.64.0/24)"]
         subgraph mgmt["mgmt 클러스터"]
             mgmt-pod["Pod CIDR<br/>10.100.0.0/16"]
-            mgmt-svc["Service CIDR<br/>10.96.0.0/12"]
+            mgmt-svc["Service CIDR<br/>10.96.0.0/16"]
         end
 
         subgraph app1["app1 클러스터"]
             app1-pod["Pod CIDR<br/>10.101.0.0/16"]
-            app1-svc["Service CIDR<br/>10.97.0.0/12"]
+            app1-svc["Service CIDR<br/>10.97.0.0/16"]
         end
 
         subgraph app2["app2 클러스터"]
             app2-pod["Pod CIDR<br/>10.102.0.0/16"]
-            app2-svc["Service CIDR<br/>10.98.0.0/12"]
+            app2-svc["Service CIDR<br/>10.98.0.0/16"]
         end
     end
 
@@ -294,9 +294,9 @@ flowchart TB
 
 | 클러스터 | 노드 네트워크 | Pod CIDR | Service CIDR | MetalLB 풀 |
 |---------|--------------|----------|--------------|-----------|
-| **mgmt** | 192.168.64.10-19 | 10.100.0.0/16 | 10.96.0.0/12 | 192.168.64.200-210 |
-| **app1** | 192.168.64.20-29 | 10.101.0.0/16 | 10.97.0.0/12 | 192.168.64.211-220 |
-| **app2** | 192.168.64.30-39 | 10.102.0.0/16 | 10.98.0.0/12 | 192.168.64.221-230 |
+| **mgmt** | 192.168.64.10-19 | 10.100.0.0/16 | 10.96.0.0/16 | 192.168.64.200-210 |
+| **app1** | 192.168.64.20-29 | 10.101.0.0/16 | 10.97.0.0/16 | 192.168.64.211-220 |
+| **app2** | 192.168.64.30-39 | 10.102.0.0/16 | 10.98.0.0/16 | 192.168.64.221-230 |
 
 ### 5.3 CNI 선택: Cilium
 
@@ -311,7 +311,7 @@ flowchart TB
 
 | 구분 | 선택 | 이유 |
 |-----|------|------|
-| **API** | Gateway API v1.0 | Ingress 후속, 멀티클러스터 지원 |
+| **API** | Gateway API v1.4 | Ingress 후속, 멀티클러스터 지원 |
 | **구현체** | Cilium Gateway | CNI와 통합, 추가 컴포넌트 불필요 |
 
 ### 5.5 외부 로드밸런서: MetalLB
@@ -496,10 +496,11 @@ flowchart LR
 | **mgmt 클러스터 전체 다운** | ❌ 시크릿 갱신 불가 (캐시로 동작) |
 | | ❌ 중앙 메트릭/로그 조회 불가 (로컬 수집 지속) |
 | | ❌ 새 인증서 발급 불가 (기존 인증서로 동작) |
+| | ❌ GitOps 배포 중단 (기존 워크로드는 정상 실행) |
 | | ✅ app1/app2 워크로드 정상 실행 |
 | **Vault 다운** | ❌ 새 시크릿 발급 불가 |
 | | ✅ External Secrets 캐시로 동작 |
-| **ArgoCD (외부) 다운** | ❌ GitOps 배포 중단 |
+| **ArgoCD 다운** | ❌ GitOps 배포 중단 |
 | | ✅ 기존 워크로드 정상 실행 |
 | **Harbor (외부) 다운** | ❌ 새 이미지 Pull 불가 |
 | | ✅ 캐시된 이미지로 Pod 실행 |
@@ -533,8 +534,8 @@ flowchart TB
 
 | 우선순위 | 컴포넌트 | RTO |
 |---------|---------|-----|
-| **P0** | ArgoCD, Harbor | 15분 |
-| **P1** | Vault, mgmt Control Plane | 30분 |
+| **P0** | Harbor | 15분 |
+| **P1** | Vault, mgmt Control Plane, ArgoCD | 30분 |
 | **P2** | Thanos, Loki, Grafana | 1시간 |
 
 ---

@@ -1,10 +1,10 @@
-# [K8s 아키텍처] 멀티클러스터 설계: Multipass 로컬 환경
+# [K8s 아키텍처] 멀티클러스터 설계 Multipass 로컬 환경
 
 ## 0. 개념 요약
 
 **멀티클러스터 아키텍처**란 단일 Kubernetes 클러스터 대신 **역할별로 분리된 여러 클러스터**를 운영하는 패턴입니다.
 
-이 글에서는 다음 내용을 다룹니다:
+이 글에서는 다음 내용을 다룹니다
 - **mgmt + app 분리 구조**의 설계 이유
 - **Graceful Degradation**을 통한 장애 격리
 - Multipass 로컬 환경에서의 멀티클러스터 구현
@@ -12,7 +12,7 @@
 
 | 용어 | 설명 |
 |-----|------|
-| **mgmt 클러스터** | 플랫폼 서비스(Vault, Prometheus, ArgoCD) 집중 배치 |
+| **mgmt 클러스터** | 플랫폼 서비스(Vault, Prometheus, Thanos, Grafana 등) 집중 배치 |
 | **app 클러스터** | 애플리케이션 워크로드 전용, 경량 에이전트만 배치 |
 | **Graceful Degradation** | 의존 서비스 장애 시 제한된 기능으로 계속 동작 |
 | **ADR** | 아키텍처 결정과 그 이유를 기록하는 문서 |
@@ -23,7 +23,7 @@
 
 ### 1.1 단일 클러스터의 한계
 
-단일 클러스터에서 플랫폼 서비스와 애플리케이션을 함께 운영하면 다음 문제가 발생합니다:
+단일 클러스터에서 플랫폼 서비스와 애플리케이션을 함께 운영하면 다음 문제가 발생합니다
 
 | 문제 | 설명 |
 |-----|------|
@@ -32,14 +32,19 @@
 | **보안 경계 모호** | 개발팀 워크로드와 인프라 컴포넌트가 같은 RBAC 범위 |
 | **업그레이드 리스크** | 클러스터 업그레이드 시 모든 워크로드에 영향 |
 
-> **경험담**: 처음엔 단일 클러스터로 시작했습니다. Prometheus가 메트릭 수집을 시작하자마자 맥북 팬이 돌기 시작하고, API Server 응답이 느려지는 걸 보고 분리를 결심했습니다.
+> **경험담** 처음엔 단일 클러스터로 시작했습니다. Prometheus가 메트릭 수집을 시작하자마자 맥북 팬이 돌기 시작하고, API Server 응답이 느려지는 걸 보고 분리를 결심했습니다.
 
 ### 1.2 역할 기반 분리
 
-이 문제를 해결하기 위해 **역할 기반 클러스터 분리**를 적용합니다:
+이 문제를 해결하기 위해 **역할 기반 클러스터 분리**를 적용합니다
 
 ```mermaid
 flowchart TB
+    subgraph Docker["Docker Desktop (외부)"]
+        Harbor["Harbor"]
+        Nexus["Nexus"]
+    end
+
     subgraph mgmt["mgmt 클러스터"]
         Vault["Vault"]
         Prom["Prometheus/Thanos"]
@@ -63,25 +68,29 @@ flowchart TB
     mgmt <-->|"Cluster Mesh"| app1
     mgmt <-->|"Cluster Mesh"| app2
     app1 <-->|"Cluster Mesh"| app2
+    ArgoCD -.->|"GitOps 배포"| mgmt
+    ArgoCD -.->|"GitOps 배포"| app1
+    ArgoCD -.->|"GitOps 배포"| app2
 ```
 
 | 클러스터 | 역할 | 주요 컴포넌트 |
 |---------|------|-------------|
-| **mgmt** | 플랫폼 서비스 | Vault, Prometheus, Thanos, Loki, Grafana, Velero, ArgoCD |
-| **app1/app2** | 워크로드 | 애플리케이션, Prometheus Agent, Promtail, Kyverno |
+| **외부 (Docker)** | 레지스트리 | Harbor, Nexus |
+| **mgmt** | 플랫폼 서비스 | Vault, Prometheus, Thanos, Loki, Grafana, Velero, MinIO, k8sgpt, ArgoCD |
+| **app1/app2** | 워크로드 | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
 
-**결론**: 플랫폼 서비스와 워크로드를 분리하여 **장애 전파를 차단**합니다.
+**결론** 플랫폼 서비스와 워크로드를 분리하여 **장애 전파를 차단**합니다.
 
 ---
 
 ## 2. 네트워크 아키텍처 핵심
 
-멀티클러스터에서 가장 중요한 건 **클러스터 간 통신**입니다. 이 아키텍처의 네트워크 핵심을 3줄로 요약하면:
+멀티클러스터에서 가장 중요한 건 **클러스터 간 통신**입니다. 이 아키텍처의 네트워크 핵심을 3줄로 요약하면
 
 > **네트워크 핵심 3줄 요약**
-> 1. **[Cilium Cluster Mesh](https://docs.cilium.io/en/stable/network/clustermesh/)**: 클러스터 간 서비스 디스커버리 및 Pod-to-Pod 통신
-> 2. **VXLAN Tunneling**: Multipass 브리지 네트워크 제약으로 Native Routing 대신 선택
-> 3. **[Gateway API](https://gateway-api.sigs.k8s.io/)**: Ingress 후속 표준, Cilium과 통합
+> 1. **[Cilium Cluster Mesh](https://docs.cilium.io/en/stable/network/clustermesh/)** 클러스터 간 서비스 디스커버리 및 Pod-to-Pod 통신
+> 2. **VXLAN Tunneling** Multipass 브리지 네트워크 제약으로 Native Routing 대신 선택
+> 3. **[Gateway API](https://gateway-api.sigs.k8s.io/)** Ingress 후속 표준, Cilium과 통합
 
 ```mermaid
 flowchart LR
@@ -104,9 +113,9 @@ flowchart LR
 
 | 클러스터 | Pod CIDR | Service CIDR |
 |---------|----------|--------------|
-| mgmt | 10.100.0.0/16 | 10.96.0.0/12 |
-| app1 | 10.101.0.0/16 | 10.97.0.0/12 |
-| app2 | 10.102.0.0/16 | 10.98.0.0/12 |
+| mgmt | 10.100.0.0/16 | 10.96.0.0/16 |
+| app1 | 10.101.0.0/16 | 10.97.0.0/16 |
+| app2 | 10.102.0.0/16 | 10.98.0.0/16 |
 
 ---
 
@@ -114,7 +123,7 @@ flowchart LR
 
 설계 과정의 주요 결정을 **ADR(Architecture Decision Record)** 형태로 기록했습니다.
 
-### 3.1 ADR-001: mgmt 집중 배치 + Graceful Degradation
+### 3.1 ADR-001 mgmt 집중 배치 + Graceful Degradation
 
 | 항목 | 내용 |
 |-----|------|
@@ -122,17 +131,17 @@ flowchart LR
 | **결정** | 플랫폼 서비스를 mgmt에 집중, app은 독립 동작 보장 |
 | **결과** | mgmt가 SPOF가 되지만, Graceful Degradation으로 완화 |
 
-> **설계 포인트: "클러스터가 죽어도 서비스는 살아야 한다"**
+> **설계 포인트 "클러스터가 죽어도 서비스는 살아야 한다"**
 >
 > 멀티클러스터 설계에서 가장 흔히 하는 실수는 mgmt 클러스터가 죽었을 때 모든 app 클러스터가 먹통이 되는 것입니다. 이를 방지하기 위해 다음 장치를 마련했습니다.
 
-**Graceful Degradation 구현**:
+**Graceful Degradation 구현**
 
-mgmt 장애 시에도 app 클러스터가 동작하도록 **버퍼/캐시**를 설계합니다:
+mgmt 장애 시에도 app 클러스터가 동작하도록 **버퍼/캐시**를 설계합니다
 
 | 컴포넌트 | 정상 상태 | mgmt 장애 시 | 버퍼 시간 |
 |---------|----------|-------------|----------|
-| **Prometheus Agent** | remote_write로 전송 | WAL 로컬 버퍼링 | **~2.7시간** (내 환경 기준 관측치, 수집량/디스크에 따라 변동) |
+| **Prometheus Agent** | remote_write로 전송 | WAL 로컬 버퍼링 | **~2.7시간** (내 환경 기준 관측치, Ingestion Rate/디스크/WAL 크기에 따라 변동) |
 | **External Secrets** | Vault에서 동기화 | 캐시된 시크릿 유지 | **1시간** (refreshInterval) |
 | **Promtail** | Loki로 push | positions 파일 보존 | 디스크 용량만큼 |
 | **ArgoCD** | Git 동기화 | 기존 워크로드 유지, 신규 배포/동기화 중단 | - |
@@ -145,26 +154,26 @@ remoteWrite:
 # WAL 버퍼: 기본 동작 특성상 약 2시간 단위, 내 환경에서 ~2.7시간 관측
 ```
 
-**참고**: 위 코드는 개념 설명용 예시입니다. 실제 구성은 [Prometheus Remote Write 공식 문서](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write)를 참조하세요.
+**참고** 위 코드는 개념 설명용 예시입니다. 실제 구성은 [Prometheus Remote Write 공식 문서](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write)를 참조하세요.
 
-### 3.2 ADR-003: PSA + Kyverno 2-Layer 보안
+### 3.2 ADR-003 PSA + Kyverno 2-Layer 보안
 
 | 항목 | 내용 |
 |-----|------|
 | **컨텍스트** | PSA 예외가 늘어나면 보안 정책이 무력화됨 |
 | **결정** | PSA는 기본 경계, Kyverno는 app 클러스터에서만 세부 정책 |
-| **역할 분담** | PSA: 네임스페이스 레벨, Kyverno: 이미지/리소스 정책 |
+| **역할 분담** | PSA 네임스페이스 레벨, Kyverno 이미지/리소스 정책 |
 
-**배치 범위**:
+**배치 범위**
 
 | 클러스터 | PSA | Kyverno | 이유 |
 |---------|-----|---------|------|
 | **mgmt** | baseline | 미설치 | 플랫폼 운영 유연성 확보 |
 | **app1/app2** | baseline | enforce | 워크로드 보안 강제 |
 
-**핵심**: mgmt는 운영자 영역이라 유연하게, app은 개발자 영역이라 엄격하게.
+**핵심** mgmt는 운영자 영역이라 유연하게, app은 개발자 영역이라 엄격하게.
 
-### 3.3 ADR-006: 관찰성 에이전트 모드
+### 3.3 ADR-006 관찰성 에이전트 모드
 
 | 항목 | 내용 |
 |-----|------|
@@ -219,19 +228,19 @@ flowchart LR
 
 | 구성요소 | RAM | 용도 |
 |---------|-----|------|
-| Docker (외부 서비스) | 6GB | ArgoCD, Harbor, Nexus |
+| Docker (외부 서비스) | 6GB | Harbor, Nexus |
 | mgmt 클러스터 | 10GB | 플랫폼 서비스 |
 | app1 클러스터 | 7GB | 워크로드 |
 | app2 클러스터 | 7GB | 워크로드 |
-| 시스템 + 버퍼 | 26GB | macOS, 여유 |
+| 예비 (버퍼) | 24GB | 시스템 + 여유 |
 
-**포인트**: mgmt에 가장 많은 리소스 할당. Prometheus, Loki 같은 상태 저장 워크로드가 있기 때문.
+**포인트** mgmt에 가장 많은 리소스 할당. Prometheus, Loki 같은 상태 저장 워크로드가 있기 때문.
 
 ---
 
 ## 5. 아키텍처 불변 조건 (Architecture Contract)
 
-구현이 변경되더라도 **반드시 유지**되어야 하는 조건을 명시합니다:
+구현이 변경되더라도 **반드시 유지**되어야 하는 조건을 명시합니다
 
 | # | 불변 조건 | 근거 |
 |---|----------|------|
@@ -239,7 +248,8 @@ flowchart LR
 | **C2** | Prometheus Agent WAL 버퍼링 (내 환경 기준 ~2.7시간, 수집량/디스크에 따라 변동) | ADR-006 |
 | **C3** | External Secrets 1시간 캐시 유지 | ADR-001 |
 | **C4** | Kyverno는 app 클러스터에만 배치 | ADR-003 |
-| **C5** | Cilium VXLAN 모드 사용 (Multipass 환경에서 Native Routing 구성 복잡도가 높아 선택) | ADR-005 |
+| **C5** | PKI 부트스트랩은 2-Phase (Self-signed → Vault Issuer) 순서 준수 | ADR-004 |
+| **C6** | Cilium VXLAN 모드 사용 (Multipass 환경에서 Native Routing 구성 복잡도가 높아 선택) | ADR-005 |
 
 ---
 
@@ -254,7 +264,7 @@ flowchart LR
 |-----|----------|
 | **Multipass 로컬** | 빠른 피드백 루프, 비용 없음, 64GB Mac이면 충분 |
 
-**내가 이 구조를 선택한 이유**:
+**내가 이 구조를 선택한 이유**
 - **64GB 제약** → mgmt에 플랫폼 집중 (분산 불가)
 - **Multipass 브리지** → Cilium VXLAN (Native Routing 구성 복잡도 높음)
 - **빠른 반복** → 로컬에서 먼저 검증 후 클라우드 전환
@@ -272,4 +282,4 @@ flowchart LR
 
 ---
 
-**태그**: `#Kubernetes` `#MultiCluster` `#PlatformEngineering` `#SRE` `#Cilium` `#Terraform` `#Multipass`
+**태그** `#Kubernetes` `#MultiCluster` `#PlatformEngineering` `#SRE` `#Cilium` `#Terraform` `#Multipass`

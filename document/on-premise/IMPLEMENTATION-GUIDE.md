@@ -75,7 +75,7 @@ resource "multipass_instance" "vm" {
   cpus   = var.cpus
   memory = var.memory
   disk   = var.disk
-  image  = "22.04"
+  image  = "24.04"
 
   cloudinit_file = templatefile("${path.module}/cloud-init.yaml", {
     hostname = var.name
@@ -148,14 +148,16 @@ clusterName: mgmt
 controlPlaneEndpoint: "mgmt-cp:6443"
 networking:
   podSubnet: "10.100.0.0/16"
-  serviceSubnet: "10.96.0.0/12"
+  serviceSubnet: "10.96.0.0/16"
   dnsDomain: "cluster.local"
 apiServer:
   extraArgs:
-    admission-control-config-file: /etc/kubernetes/psa/admission-config.yaml
+    - name: admission-control-config-file
+      value: /etc/kubernetes/psa/admission-config.yaml
 controllerManager:
   extraArgs:
-    bind-address: "0.0.0.0"
+    - name: bind-address
+      value: "0.0.0.0"
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: InitConfiguration
@@ -218,7 +220,7 @@ echo "클러스터 ${CLUSTER_NAME} 초기화 완료"
 ```bash
 # Cilium CLI로 설치
 cilium install \
-  --version 1.15.0 \
+  --version 1.19.0 \
   --set cluster.id=1 \
   --set cluster.name=mgmt \
   --set tunnel=vxlan \
@@ -551,18 +553,6 @@ spec:
 version: '3.8'
 
 services:
-  argocd:
-    image: quay.io/argoproj/argocd:v2.10.0
-    ports:
-      - "8080:8080"
-      - "8443:8443"
-    volumes:
-      - argocd-data:/home/argocd
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-
   harbor:
     image: goharbor/harbor-core:v2.10.0
     ports:
@@ -587,7 +577,6 @@ services:
           memory: 2G
 
 volumes:
-  argocd-data:
   harbor-data:
   nexus-data:
 ```

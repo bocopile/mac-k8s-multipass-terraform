@@ -253,7 +253,7 @@ kubectl version
 
 # 2. kubeadm 업그레이드
 sudo apt-get update
-sudo apt-get install -y kubeadm=${TARGET_VERSION}-00
+sudo apt-get install -y kubeadm=${TARGET_VERSION}-1.1
 
 # 3. 업그레이드 계획 확인
 sudo kubeadm upgrade plan
@@ -262,7 +262,7 @@ sudo kubeadm upgrade plan
 sudo kubeadm upgrade apply v${TARGET_VERSION}
 
 # 5. kubelet 업그레이드
-sudo apt-get install -y kubelet=${TARGET_VERSION}-00 kubectl=${TARGET_VERSION}-00
+sudo apt-get install -y kubelet=${TARGET_VERSION}-1.1 kubectl=${TARGET_VERSION}-1.1
 sudo systemctl daemon-reload
 sudo systemctl restart kubelet
 
