@@ -53,3 +53,4 @@ secrets.env
 .worktrees/
 .env.local
 .orchestrator/**
+.claude/**
