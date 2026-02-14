@@ -1,9 +1,10 @@
-# Kubernetes 멀티클러스터 아키텍처
+# Kubernetes HA 클러스터 아키텍처
 
-> **버전**: 2.0.0
+> **버전**: 3.0.0
 > **Kubernetes**: v1.35 (Timbernetes)
-> **최종 수정일**: 2026-02-05
-> **관련 문서**: [구현 가이드](IMPLEMENTATION-GUIDE.md) | [운영 런북](OPERATIONS-RUNBOOK.md)
+> **최종 수정일**: 2026-02-14
+> **IaC 소스**: 본 문서의 모든 내용은 실제 Terraform / Shell Script / Helm Values 코드에서 도출
+> **관련 문서**: [SMARTER-PROMPT.md](SMARTER-PROMPT.md)
 
 ---
 
@@ -17,8 +18,8 @@
 6. [스토리지 아키텍처](#6-스토리지-아키텍처)
 7. [보안 아키텍처](#7-보안-아키텍처)
 8. [관찰성 아키텍처](#8-관찰성-아키텍처)
-9. [장애 도메인 및 복원력](#9-장애-도메인-및-복원력)
-10. [백업 및 DR 전략](#10-백업-및-dr-전략)
+9. [GitOps 및 시크릿 관리](#9-gitops-및-시크릿-관리)
+10. [장애 도메인 및 복원력](#10-장애-도메인-및-복원력)
 11. [리소스 계획](#11-리소스-계획)
 
 ---
@@ -27,9 +28,9 @@
 
 ### 1.1 프로젝트 목적
 
-macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 프로덕션급 Kubernetes 멀티클러스터 환경을 구축합니다.
+macOS(Apple Silicon) 환경에서 Kubernetes HA 클러스터를 프로비저닝하는 **Terraform 모듈 + Shell Script + Helm Values**를 작성한다.
 
-### 1.2 대상 환경 및 SLO
+### 1.2 대상 환경
 
 | 항목 | 값 |
 |-----|-----|
@@ -37,131 +38,127 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | **워크로드 유형** | Stateless (주), Stateful (보조) |
 | **테넌시** | 단일 (개인 개발 환경) |
 
-| SLO 지표 | 목표 | 비고 |
-|---------|------|------|
-| **가용성** | 99% | 월 ~7시간 다운타임 허용 |
-| **RTO** | 1시간 | 클러스터 재생성 기준 |
-| **RPO** | 24시간 | 일일 백업 기준 |
-
 ### 1.3 핵심 원칙
 
-| 원칙 | 설명 |
-|-----|------|
-| **IaC** | Terraform으로 모든 인프라 정의 |
-| **GitOps** | ArgoCD 기반 선언적 배포 |
-| **제로 트러스트** | PSA + Kyverno 2-layer 보안 |
-| **장애 격리** | mgmt 장애 시에도 app 클러스터 독립 운영 |
-| **Graceful Degradation** | 의존 서비스 장애 시 제한된 기능으로 계속 동작 |
+| 원칙 | 설명 | 코드 참조 |
+|-----|------|----------|
+| **IaC** | Terraform으로 VM 인프라 정의 | `main.tf`, `variables.tf` |
+| **GitOps** | ArgoCD 기반 선언적 배포 | `addons/values/argocd/` |
+| **서비스 메시** | Istio mTLS로 제로 트러스트 네트워크 | `addons/values/istio/` |
+| **3-Pillar 관찰성** | 메트릭 + 로그 + 트레이스 통합 | `addons/values/monitoring/`, `logging/`, `tracing/` |
+| **자동화** | `terraform apply` + `bash install.sh` 2-Step 완전 자동화 | `main.tf`, `addons/install.sh` |
 
 ### 1.4 기술 스택 개요
 
-| 영역 | 기술 |
-|-----|------|
-| **인프라** | Multipass, Terraform, cloud-init |
-| **쿠버네티스** | kubeadm v1.35, containerd |
-| **네트워크** | Cilium + Cluster Mesh + Gateway API |
-| **GitOps** | ArgoCD (mgmt 클러스터) |
-| **시크릿/PKI** | Vault + External Secrets + cert-manager |
-| **관찰성** | Prometheus + Thanos + Loki + Grafana |
-| **보안** | PSA + Kyverno + Falco |
-| **백업** | Velero + MinIO |
+| 영역 | 기술 | 코드 참조 |
+|-----|------|----------|
+| **인프라** | Multipass, Terraform (null provider), cloud-init | `main.tf`, `init/k8s.yaml` |
+| **쿠버네티스** | kubeadm v1.35, containerd | `init/k8s.yaml`, `shell/cluster-init.sh` |
+| **CNI** | Flannel (VXLAN) | `shell/cluster-init.sh` |
+| **서비스 메시** | Istio (mTLS, auto-inject, Gateway) | `addons/values/istio/istio-values.yaml` |
+| **로드밸런서** | MetalLB (L2 모드) | `addons/values/metallb/metallb-config.yaml` |
+| **GitOps** | ArgoCD | `addons/values/argocd/argocd-values.yaml` |
+| **모니터링** | kube-prometheus-stack (Prometheus + Grafana) | `addons/values/monitoring/monitoring-values.yaml` |
+| **로깅** | Loki + Promtail | `addons/values/logging/` |
+| **트레이싱** | Jaeger + OpenTelemetry Collector + Kiali | `addons/values/tracing/` |
+| **시크릿** | HashiCorp Vault (Dev Mode) | `addons/values/vault/vault-values.yaml` |
+| **스토리지** | Local Path Provisioner (Rancher) | `addons/values/rancher/local-path.yaml` |
 
 ### 1.5 제약 조건
 
 - Ansible 미사용 (Shell Script로 대체)
 - Helmfile 미사용 (Helm CLI 직접 사용)
 - 로컬 환경 한정 (macOS + Multipass VM)
+- 단일 클러스터 구성 (멀티클러스터 미사용)
 
 ---
 
 ## 2. 아키텍처 결정 기록 (ADR)
 
-### ADR-001: mgmt 클러스터 중심의 플랫폼 서비스 집중
+### ADR-001: 단일 HA 클러스터 구성
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | 로컬 리소스 제약(64GB RAM) 하에서 효율적인 플랫폼 운영 필요 |
-| **결정** | Vault, 관찰성, 백업 등 플랫폼 서비스를 mgmt 클러스터에 집중 배치 |
-| **결과** | 리소스 효율성 확보, 단 mgmt가 SPOF가 되므로 장애 도메인 명확화 필요 |
-| **완화책** | app 클러스터는 로컬 캐시/버퍼로 독립 동작 (섹션 9 참조) |
+| **컨텍스트** | 로컬 개발 환경에서 리소스 효율성과 운영 단순성 필요 |
+| **결정** | Control Plane 3노드 + Worker 3노드의 단일 HA 클러스터 구성 |
+| **근거** | 멀티클러스터 대비 리소스 절약, kubeadm HA(stacked etcd)로 CP 가용성 확보 |
+| **트레이드오프** | 워크로드 격리가 네임스페이스 수준으로 제한됨 |
 
-> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §4](IMPLEMENTATION-GUIDE.md#4-플랫폼-서비스-설치)
+> 📎 **구현**: `main.tf` - `null_resource.masters` (count=3), `null_resource.workers` (count=3)
 
-### ADR-002: Kubernetes Feature-gate 선택적 활성화
-
-| 항목 | 내용 |
-|-----|------|
-| **상태** | Accepted |
-| **컨텍스트** | K8s 1.35에서 InPlacePodVerticalScaling이 GA 졸업, 활용 여부 결정 필요 |
-| **결정** | InPlacePodVerticalScaling GA 기능을 활용하되, 기본 아키텍처는 VPA만으로도 동작하도록 설계 |
-| **결과** | VPA InPlaceOrRecreate 모드(Beta) 활용 가능, 미사용 시에도 기존 VPA Recreate로 동작 |
-
-> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §2.3](IMPLEMENTATION-GUIDE.md#23-kubeadm-설정)
-
-### ADR-003: PSA + Kyverno 2-Layer 보안 모델
+### ADR-002: Flannel CNI 선택
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | PSA 예외가 늘어나면 보안 정책이 무력화되는 패턴 방지 필요 |
-| **결정** | PSA는 기본 경계(baseline), Kyverno는 워크로드별 세부 정책 담당 |
-| **역할 분담** | PSA: 네임스페이스 레벨 강제, Kyverno: 이미지/리소스/라벨 정책 |
+| **컨텍스트** | Multipass VM 환경에서 안정적이고 간단한 CNI 필요 |
+| **결정** | Flannel (VXLAN 모드) |
+| **근거** | 설정 단순, Multipass 브리지 네트워크에서 안정 동작, kubeadm과 호환성 우수 |
+| **트레이드오프** | L7 Network Policy 미지원 (Istio mTLS로 보완) |
 
-**Kyverno 배치 범위**:
+> 📎 **구현**: `shell/cluster-init.sh` - `kubectl apply -f kube-flannel.yml`
 
-| 클러스터 | Kyverno | 이유 |
-|---------|---------|------|
-| **mgmt** | ❌ 미설치 | 플랫폼/운영자 영역, PSA baseline만 적용 (유연성 확보) |
-| **app1/app2** | ✅ 설치 | 개발팀 워크로드 영역, 엄격한 정책 enforce |
-
-> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §4.4](IMPLEMENTATION-GUIDE.md#44-kyverno)
-
-### ADR-004: 2-Phase PKI 부트스트랩
+### ADR-003: Istio 서비스 메시 도입
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | cert-manager ↔ Vault 간 순환 의존성 (닭-달걀 문제) |
-| **결정** | Phase 1: Self-signed Issuer로 부트스트랩 → Phase 2: Vault Issuer로 전환 |
-| **결과** | 설치 순서 명확화, 운영 중 인증서 자동 갱신 보장 |
+| **컨텍스트** | 마이크로서비스 간 보안 통신 및 트래픽 관리 필요 |
+| **결정** | Istio (base + istiod + gateway) 3-컴포넌트 배포, 전역 mTLS + auto-inject |
+| **근거** | 서비스 간 mTLS 자동화, 트래픽 관찰성(Kiali 연동), Gateway API 지원 |
+| **트레이드오프** | 사이드카 프록시에 의한 리소스 오버헤드 |
 
-> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §4.2](IMPLEMENTATION-GUIDE.md#42-cert-manager)
+> 📎 **구현**: `addons/values/istio/istio-values.yaml` - `global.mtls.enabled: true`, `proxy.autoInject: enabled`
 
-### ADR-005: Cilium Tunneling(VXLAN) 모드 선택
-
-| 항목 | 내용 |
-|-----|------|
-| **상태** | Accepted |
-| **컨텍스트** | Multipass 브리지 네트워크에서 Native Routing 복잡도 높음 |
-| **결정** | Cilium Tunneling(VXLAN) 모드로 네트워크 추상화 |
-| **트레이드오프** | 약간의 오버헤드 (로컬 환경에서는 무시 가능) |
-
-> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §3.1](IMPLEMENTATION-GUIDE.md#31-cilium-설치)
-
-### ADR-006: 관찰성 에이전트 모드 아키텍처
+### ADR-004: kube-prometheus-stack 통합 모니터링
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | 각 클러스터에 전체 Prometheus 스택 배치 시 I/O 병목 |
-| **결정** | app 클러스터는 Prometheus Agent Mode + Promtail, mgmt가 중앙 집계 |
-| **결과** | 로컬 디스크 사용량 최소화, mgmt 장애 시에도 로컬 수집 지속 |
+| **컨텍스트** | 단일 클러스터에서 메트릭 수집/저장/시각화/알림을 일체형으로 구성 |
+| **결정** | kube-prometheus-stack (Prometheus + Grafana + Alertmanager 번들) |
+| **근거** | 단일 Helm Chart로 전체 모니터링 스택 배포, ServiceMonitor 자동 수집 |
+| **설정** | retention 7일, ServiceMonitor 전체 네임스페이스 수집 |
 
-> 📎 **구현**: [IMPLEMENTATION-GUIDE.md §4.5](IMPLEMENTATION-GUIDE.md#45-관찰성-스택)
+> 📎 **구현**: `addons/values/monitoring/monitoring-values.yaml`
+
+### ADR-005: Jaeger + OpenTelemetry 분산 트레이싱
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **컨텍스트** | Istio 서비스 메시 환경에서 요청 흐름 추적 필요 |
+| **결정** | OTel Collector(OTLP 수신) → Jaeger(저장/조회), Kiali(서비스 메시 시각화) |
+| **근거** | OTel 표준 프로토콜 사용으로 벤더 중립, Kiali-Jaeger-Prometheus 통합 |
+| **트레이드오프** | Jaeger 메모리 스토리지 사용 (재시작 시 데이터 손실) |
+
+> 📎 **구현**: `addons/values/tracing/otel-values.yaml`, `jaeger-values.yaml`, `kiali-values.yaml`
+
+### ADR-006: Vault Dev Mode 운영
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **컨텍스트** | 로컬 개발 환경에서 시크릿 관리 기반 마련 |
+| **결정** | Vault Dev Mode로 배포 (자동 unseal, UI 활성, Root Token 사용) |
+| **근거** | 운영 복잡도 최소화, 개발/학습 목적에 적합 |
+| **트레이드오프** | In-memory 스토리지로 재시작 시 데이터 손실, 프로덕션 사용 불가 |
+
+> 📎 **구현**: `addons/values/vault/vault-values.yaml` - `server.dev.enabled: true`
 
 ### 아키텍처 불변 조건 (Architecture Contract)
 
 > 아래 조건은 구현이 변경되더라도 **반드시 유지**되어야 하는 아키텍처 보장 사항입니다.
 
-| # | 불변 조건 | 근거 ADR |
-|---|----------|----------|
-| **C1** | mgmt 클러스터 장애 시에도 app 클러스터 워크로드는 **독립 실행** 지속 | ADR-001 |
-| **C2** | app 클러스터의 Prometheus Agent는 WAL 로컬 버퍼링 유지 (내 환경 기준 **~2.7시간**, 수집량/디스크에 따라 변동) | ADR-006 |
-| **C3** | External Secrets는 **refreshInterval 1h** 캐시로 Vault 장애 시에도 동작 | ADR-001 |
-| **C4** | Kyverno는 **app 클러스터에만** enforce 모드로 배치 (mgmt 제외) | ADR-003 |
-| **C5** | PKI 부트스트랩은 **2-Phase** (Self-signed → Vault Issuer) 순서 준수 | ADR-004 |
-| **C6** | Cilium은 **Tunneling(VXLAN)** 모드로 동작 (Multipass 환경에서 Native Routing 구성 복잡도가 높아 선택) | ADR-005 |
+| # | 불변 조건 | 근거 ADR | 코드 참조 |
+|---|----------|----------|----------|
+| **C1** | VM 스펙은 `main.tf`의 `multipass launch` 파라미터에서 정의 | ADR-001 | `main.tf` |
+| **C2** | Pod CIDR은 `10.244.0.0/16`이며 Flannel이 관리 | ADR-002 | `shell/cluster-init.sh` |
+| **C3** | Istio는 전역 mTLS + auto-inject 모드로 동작 | ADR-003 | `istio-values.yaml` |
+| **C4** | 모든 Helm 설정은 `addons/values/` 디렉터리의 YAML에서 도출 | - | `addons/values/` |
+| **C5** | 애드온 설치 순서는 `addons/install.sh`의 실행 순서를 따름 | - | `addons/install.sh` |
+| **C6** | 검증 항목은 `addons/verify.sh`의 ADDONS 배열과 일치 | - | `addons/verify.sh` |
 
 ---
 
@@ -169,24 +166,22 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 
 ### 3.1 호스트 머신 스펙
 
-| 리소스 | 최소 | 권장 | 현재 |
+| 리소스 | 최소 | 권장 | 비고 |
 |-------|------|------|------|
-| **CPU** | 8코어 | 10코어 이상 | Apple M1 Max (10코어) |
-| **RAM** | 32GB | 64GB | 64GB |
-| **디스크** | 256GB SSD | 512GB 이상 | 540GB 가용 |
-| **OS** | macOS 13+ | macOS 14+ | Darwin 25.2.0 |
+| **CPU** | 8코어 | 10코어 이상 | VM 총 12 vCPU 할당 |
+| **RAM** | 32GB | 64GB | VM 총 24GB 할당 |
+| **디스크** | 300GB SSD | 512GB 이상 | VM 총 270GB 할당 |
+| **OS** | macOS 13+ | macOS 14+ | Apple Silicon 지원 |
 
-### 3.2 리소스 할당
+### 3.2 필수 도구
 
-**RAM 할당 (총 가용: 56GB)**:
-
-| 구성요소 | RAM | 용도 |
-|---------|-----|------|
-| 외부 서비스 (Docker) | 6GB | Harbor, Nexus |
-| mgmt 클러스터 | 10GB | 플랫폼 서비스 |
-| app1 클러스터 | 7GB | 워크로드 |
-| app2 클러스터 | 7GB | 워크로드 |
-| 예비 (버퍼) | 24GB | 시스템 + 여유 |
+| 도구 | 버전 | 용도 | 검증 |
+|-----|------|------|------|
+| **Terraform** | >= 1.11.3 | VM 프로비저닝 | `versions.tf` |
+| **Multipass** | 최신 | Ubuntu VM 관리 | `main.tf` |
+| **Helm** | v3+ | 애드온 설치 | `addons/install.sh` |
+| **kubectl** | v1.35 | 클러스터 관리 | `init/k8s.yaml` |
+| **jq** | 최신 | JSON 파싱 | `shell/delete-vm.sh` |
 
 ---
 
@@ -196,69 +191,67 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 
 ```mermaid
 flowchart TB
-    subgraph Host["macOS 호스트 (Mac Studio M1 Max)"]
-        subgraph Docker["Docker Desktop"]
-            Harbor["Harbor<br/>:8443"]
-            Nexus["Nexus<br/>:8081"]
-        end
-
-        subgraph Multipass["Multipass VM"]
-            subgraph mgmt["mgmt 클러스터<br/>10GB RAM"]
-                mgmt-cp["Control Plane"]
-                mgmt-worker["Worker"]
-                mgmt-argocd["ArgoCD"]
+    subgraph Host["macOS 호스트 (Apple Silicon)"]
+        subgraph Multipass["Multipass VM (6개)"]
+            subgraph CP["Control Plane (HA)"]
+                m0["k8s-master-0<br/>4GB / 40GB / 2CPU"]
+                m1["k8s-master-1<br/>4GB / 40GB / 2CPU"]
+                m2["k8s-master-2<br/>4GB / 40GB / 2CPU"]
             end
 
-            subgraph app1["app1 클러스터<br/>7GB RAM"]
-                app1-cp["Control Plane"]
-                app1-worker["Worker"]
-            end
-
-            subgraph app2["app2 클러스터<br/>7GB RAM"]
-                app2-cp["Control Plane"]
-                app2-worker["Worker"]
+            subgraph Workers["Worker Nodes"]
+                w0["k8s-worker-0<br/>4GB / 50GB / 2CPU"]
+                w1["k8s-worker-1<br/>4GB / 50GB / 2CPU"]
+                w2["k8s-worker-2<br/>4GB / 50GB / 2CPU"]
             end
         end
     end
 
-    subgraph External["외부 API"]
-        OpenAI["OpenAI"]
-        Gemini["Gemini"]
-    end
+    m0 <-->|"etcd"| m1
+    m1 <-->|"etcd"| m2
+    m0 <-->|"etcd"| m2
 
-    Docker <--> Multipass
-    mgmt <-->|"Cluster Mesh"| app1
-    mgmt <-->|"Cluster Mesh"| app2
-    app1 <-->|"Cluster Mesh"| app2
-    mgmt --> External
+    CP --> Workers
 ```
 
-### 4.2 클러스터 역할 및 책임
+### 4.2 노드 스펙
 
-| 클러스터 | 역할 | 컴포넌트 |
-|---------|------|---------|
-| **mgmt** | 플랫폼 서비스 | Vault, Prometheus, Thanos, Loki, Grafana, Velero, MinIO, k8sgpt, ArgoCD |
-| **app1** | 워크로드 A | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
-| **app2** | 워크로드 B | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
+> 📎 **코드 참조**: `main.tf` - `multipass launch` 명령 파라미터
 
-### 4.3 클러스터 스펙
+| 역할 | 노드명 | RAM | Disk | CPU | OS |
+|-----|--------|-----|------|-----|-----|
+| Control Plane | k8s-master-0 | 4GB | 40GB | 2 | Ubuntu 24.04 |
+| Control Plane | k8s-master-1 | 4GB | 40GB | 2 | Ubuntu 24.04 |
+| Control Plane | k8s-master-2 | 4GB | 40GB | 2 | Ubuntu 24.04 |
+| Worker | k8s-worker-0 | 4GB | 50GB | 2 | Ubuntu 24.04 |
+| Worker | k8s-worker-1 | 4GB | 50GB | 2 | Ubuntu 24.04 |
+| Worker | k8s-worker-2 | 4GB | 50GB | 2 | Ubuntu 24.04 |
 
-| 클러스터 | Control Plane | Workers | 총 RAM | 총 CPU |
-|---------|---------------|---------|--------|--------|
-| **mgmt** | 1 (4GB/2C) | 1 (6GB/2C) | 10GB | 4 vCPU |
-| **app1** | 1 (3GB/2C) | 1 (4GB/2C) | 7GB | 4 vCPU |
-| **app2** | 1 (3GB/2C) | 1 (4GB/2C) | 7GB | 4 vCPU |
+### 4.3 Terraform 리소스 의존성 체인
 
-### 4.4 노드 IP 할당
+> 📎 **코드 참조**: `main.tf` - `depends_on` 체인
 
-| 클러스터 | 노드 | IP |
-|---------|------|-----|
-| mgmt | mgmt-cp | 192.168.64.10 |
-| mgmt | mgmt-worker-0 | 192.168.64.11 |
-| app1 | app1-cp | 192.168.64.20 |
-| app1 | app1-worker-0 | 192.168.64.21 |
-| app2 | app2-cp | 192.168.64.30 |
-| app2 | app2-worker-0 | 192.168.64.31 |
+```mermaid
+flowchart LR
+    A["null_resource.masters<br/>(VM 3개 생성)"]
+    B["null_resource.workers<br/>(VM 3개 생성)"]
+    C["null_resource.init_cluster<br/>(kubeadm init)"]
+    D["null_resource.join_all<br/>(노드 조인)"]
+
+    A --> B --> C --> D
+```
+
+### 4.4 cloud-init 자동 구성 항목
+
+> 📎 **코드 참조**: `init/k8s.yaml`
+
+| 단계 | 내용 |
+|-----|------|
+| 패키지 설치 | containerd, kubeadm, kubelet, kubectl (v1.35) |
+| 커널 모듈 | `overlay`, `br_netfilter` |
+| sysctl | `bridge-nf-call-iptables=1`, `ip_forward=1`, `bridge-nf-call-ip6tables=1` |
+| containerd | `SystemdCgroup = true` 설정 |
+| 패키지 고정 | `apt-mark hold kubelet kubeadm kubectl` |
 
 ---
 
@@ -268,102 +261,124 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph Bridge["Multipass 브리지 (192.168.64.0/24)"]
-        subgraph mgmt["mgmt 클러스터"]
-            mgmt-pod["Pod CIDR<br/>10.100.0.0/16"]
-            mgmt-svc["Service CIDR<br/>10.96.0.0/16"]
-        end
-
-        subgraph app1["app1 클러스터"]
-            app1-pod["Pod CIDR<br/>10.101.0.0/16"]
-            app1-svc["Service CIDR<br/>10.97.0.0/16"]
-        end
-
-        subgraph app2["app2 클러스터"]
-            app2-pod["Pod CIDR<br/>10.102.0.0/16"]
-            app2-svc["Service CIDR<br/>10.98.0.0/16"]
+    subgraph Bridge["Multipass 브리지 네트워크"]
+        subgraph Cluster["Kubernetes HA 클러스터"]
+            PodCIDR["Pod CIDR<br/>10.244.0.0/16<br/>(Flannel VXLAN)"]
+            SvcCIDR["Service CIDR<br/>기본값"]
+            MetalLBPool["MetalLB IP 풀<br/>192.168.65.200-250"]
         end
     end
 
-    mgmt-pod <-->|"Cilium Cluster Mesh"| app1-pod
-    mgmt-pod <-->|"Cilium Cluster Mesh"| app2-pod
-    app1-pod <-->|"Cilium Cluster Mesh"| app2-pod
+    subgraph Ingress["외부 접근"]
+        IstioGW["Istio Gateway<br/>HTTP(80) / HTTPS(443)"]
+    end
+
+    subgraph DNS["도메인 매핑"]
+        D1["argocd.bocopile.io"]
+        D2["grafana.bocopile.io"]
+        D3["jaeger.bocopile.io"]
+        D4["kiali.bocopile.io"]
+        D5["vault.bocopile.io"]
+    end
+
+    MetalLBPool --> IstioGW
+    IstioGW --> DNS
 ```
 
 ### 5.2 CIDR 할당
 
-| 클러스터 | 노드 네트워크 | Pod CIDR | Service CIDR | MetalLB 풀 |
-|---------|--------------|----------|--------------|-----------|
-| **mgmt** | 192.168.64.10-19 | 10.100.0.0/16 | 10.96.0.0/16 | 192.168.64.200-210 |
-| **app1** | 192.168.64.20-29 | 10.101.0.0/16 | 10.97.0.0/16 | 192.168.64.211-220 |
-| **app2** | 192.168.64.30-39 | 10.102.0.0/16 | 10.98.0.0/16 | 192.168.64.221-230 |
+> 📎 **코드 참조**: `shell/cluster-init.sh` - `kubeadm init --pod-network-cidr`
 
-### 5.3 CNI 선택: Cilium
+| 항목 | 값 | 설정 위치 |
+|-----|-----|----------|
+| **Pod CIDR** | `10.244.0.0/16` | `shell/cluster-init.sh` |
+| **CNI** | Flannel (VXLAN) | `shell/cluster-init.sh` |
+| **Control Plane Endpoint** | `${MASTER_IP}:6443` | `shell/cluster-init.sh` |
 
-| 기능 | 설명 |
+### 5.3 CNI: Flannel
+
+> 📎 **코드 참조**: `shell/cluster-init.sh` - `kubectl apply -f kube-flannel.yml`
+
+| 항목 | 설명 |
 |-----|------|
-| **Cluster Mesh** | 멀티클러스터 서비스 디스커버리 |
-| **Tunneling (VXLAN)** | Multipass 환경에서 안정적 동작 |
-| **Hubble** | 네트워크 관찰성 (UI + CLI) |
-| **Network Policy** | L3/L4/L7 정책 지원 |
+| **모드** | VXLAN (overlay) |
+| **설치 방식** | kubeadm init 직후 kubectl apply |
+| **Pod CIDR** | `10.244.0.0/16` (kubeadm 파라미터와 일치) |
+| **장점** | 설정 단순, Multipass 환경 호환성 우수 |
 
-### 5.4 Ingress: Gateway API
+### 5.4 로드밸런서: MetalLB
 
-| 구분 | 선택 | 이유 |
-|-----|------|------|
-| **API** | Gateway API v1.4 | Ingress 후속, 멀티클러스터 지원 |
-| **구현체** | Cilium Gateway | CNI와 통합, 추가 컴포넌트 불필요 |
+> 📎 **코드 참조**: `addons/values/metallb/metallb-config.yaml`
 
-### 5.5 외부 로드밸런서: MetalLB
+| 항목 | 값 |
+|-----|-----|
+| **모드** | L2 (Layer 2 Advertisement) |
+| **IP 풀** | `192.168.65.200` - `192.168.65.250` (51개) |
+| **풀 이름** | `default-address-pool` |
+| **설치 대기** | `sleep 40` (CRD 준비 대기) |
 
-- **모드**: L2 (ARP 기반)
-- **이유**: Multipass 브리지 네트워크에서 BGP 불가
-- **풀 할당**: 클러스터별 10개 IP
+### 5.5 Ingress: Istio Gateway
+
+> 📎 **코드 참조**: `addons/values/istio/istio-values.yaml`
+
+| 항목 | 값 |
+|-----|-----|
+| **서비스 타입** | LoadBalancer (MetalLB에서 IP 할당) |
+| **HTTP 포트** | 80 → 8080 |
+| **HTTPS 포트** | 443 → 8443 |
+
+### 5.6 DNS 매핑
+
+> 📎 **코드 참조**: `addons/install.sh` - SERVICE_MAP 변수
+
+| 도메인 | 서비스.네임스페이스 | 접근 방식 |
+|-------|-------------------|----------|
+| `argocd.bocopile.io` | `argocd-server.argocd` | LoadBalancer IP |
+| `grafana.bocopile.io` | `kube-prometheus-stack-grafana.monitoring` | LoadBalancer IP |
+| `jaeger.bocopile.io` | `jaeger-query.tracing` | LoadBalancer IP |
+| `kiali.bocopile.io` | `kiali.istio-system` | LoadBalancer IP |
+| `vault.bocopile.io` | `vault.vault` | LoadBalancer IP |
+
+설치 스크립트가 `hosts.generated` 파일을 자동 생성하며, `sudo cp hosts.generated /etc/hosts`로 적용합니다.
 
 ---
 
 ## 6. 스토리지 아키텍처
 
-### 6.1 스토리지 계층
+### 6.1 StorageClass
 
-```mermaid
-flowchart TB
-    subgraph L1["Layer 1: 임시 (Ephemeral)"]
-        emptyDir["emptyDir<br/>캐시, 사이드카 공유<br/>Pod 생명주기"]
-    end
+> 📎 **코드 참조**: `addons/values/rancher/local-path.yaml`
 
-    subgraph L2["Layer 2: 로컬 (Node-Local)"]
-        localpath["local-path<br/>Prometheus, Loki 데이터<br/>노드 장애 시 손실"]
-    end
+| StorageClass | Provisioner | ReclaimPolicy | VolumeBindingMode | 기본 SC |
+|-------------|-------------|---------------|-------------------|---------|
+| **local-path** | rancher.io/local-path | Delete | WaitForFirstConsumer | Yes |
 
-    subgraph L3["Layer 3: 공유 (Shared)"]
-        minio["MinIO<br/>백업, 아티팩트<br/>오브젝트 스토리지"]
-    end
+```yaml
+# addons/values/rancher/local-path.yaml
+storageClass:
+  create: true
+  defaultClass: true
+  name: local-path
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+  provisioner: rancher.io/local-path
 
-    L1 --> L2 --> L3
-
-    style L1 fill:#e1f5fe
-    style L2 fill:#fff3e0
-    style L3 fill:#e8f5e9
+nodePathMap:
+  - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+    paths:
+      - /opt/local-path-provisioner
 ```
 
-### 6.2 StorageClass 설계
+### 6.2 워크로드별 스토리지 매핑
 
-| StorageClass | Provisioner | ReclaimPolicy | 용도 |
-|-------------|-------------|---------------|------|
-| **local-path** (기본) | rancher.io/local-path | Delete | 일반 워크로드 |
-| **local-path-retain** | rancher.io/local-path | Retain | 중요 데이터 (Vault) |
+| 워크로드 | PV 사용 | 크기 | 비고 |
+|---------|---------|------|------|
+| Loki | `local-path` SC | 10Gi | filesystem 백엔드, `loki-values.yaml` |
+| Jaeger | 미사용 | - | memory 스토리지 (재시작 시 손실) |
+| Vault | 미사용 | - | Dev Mode (in-memory, 재시작 시 손실) |
+| Prometheus | 미사용 | - | kube-prometheus-stack 기본 (emptyDir) |
 
-### 6.3 워크로드별 스토리지 매핑
-
-| 워크로드 | StorageClass | 크기 | 비고 |
-|---------|-------------|------|------|
-| Prometheus | local-path | 20Gi | TSDB, 15일 보존 |
-| Loki | local-path | 30Gi | 로그, 7일 보존 |
-| Vault | local-path-retain | 10Gi | 시크릿 데이터 |
-| MinIO | local-path-retain | 50Gi | 백업 저장소 |
-
-> **⚠️ 제약**: local-path는 노드 로컬 디스크 사용. 노드 장애 시 데이터 손실 가능. 중요 데이터는 MinIO로 백업 필수.
+> **참고**: 로컬 개발 환경 특성상 대부분의 워크로드가 비영구 스토리지를 사용합니다. 프로덕션 전환 시 PersistentVolume 설정이 필요합니다.
 
 ---
 
@@ -373,259 +388,290 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph L1["L1. 클러스터 접근 제어"]
+    subgraph L1["L1. 서비스 메시 보안"]
+        istio["Istio mTLS<br/>서비스 간 암호화 통신<br/>auto-inject 전역 활성"]
+    end
+
+    subgraph L2["L2. 시크릿 관리"]
+        vault["HashiCorp Vault<br/>Dev Mode<br/>UI: vault.bocopile.io"]
+    end
+
+    subgraph L3["L3. 클러스터 접근 제어"]
         access["RBAC, ServiceAccount<br/>kubeconfig 관리"]
     end
 
-    subgraph L2["L2. 워크로드 보안 (2-Layer)"]
-        PSA["PSA<br/>네임스페이스 레벨 기본 경계"]
-        Kyverno["Kyverno<br/>워크로드별 세부 정책<br/>(app 클러스터만)"]
-    end
-
-    subgraph L3["L3. 네트워크 보안"]
-        netpol["Cilium Network Policy<br/>기본 deny, 명시적 allow"]
-    end
-
-    subgraph L4["L4. 시크릿 관리"]
-        secrets["Vault + External Secrets Operator"]
-    end
-
-    subgraph L5["L5. 런타임 보안"]
-        runtime["Falco<br/>이상 행위 탐지"]
-    end
-
-    L1 --> L2 --> L3 --> L4 --> L5
+    L1 --> L2 --> L3
 
     style L1 fill:#ffcdd2
-    style L2 fill:#f8bbd9
-    style L3 fill:#e1bee7
-    style L4 fill:#d1c4e9
-    style L5 fill:#c5cae9
+    style L2 fill:#d1c4e9
+    style L3 fill:#c5cae9
 ```
 
-### 7.2 PSA 정책 매핑
+### 7.2 Istio mTLS (L1)
 
-| 네임스페이스 | enforce | audit | warn | 비고 |
-|------------|---------|-------|------|------|
-| **기본값** | baseline | restricted | restricted | |
-| kube-system | 예외 | - | - | 시스템 컴포넌트 |
-| cilium-system | 예외 | - | - | CNI 권한 필요 |
-| monitoring | 예외 | - | - | Node Exporter |
-| vault | 예외 | - | - | IPC Lock 필요 |
+> 📎 **코드 참조**: `addons/values/istio/istio-values.yaml`
 
-### 7.3 Kyverno 정책 범위 (app 클러스터)
+| 설정 | 값 | 효과 |
+|-----|-----|------|
+| `global.mtls.enabled` | `true` | 모든 서비스 간 mTLS 강제 |
+| `global.proxy.autoInject` | `enabled` | 모든 Pod에 Envoy 사이드카 자동 주입 |
+| `pilot.autoscaleEnabled` | `false` | 리소스 절약 (로컬 환경) |
 
-| 정책 | 모드 | 설명 |
-|-----|------|------|
-| 이미지 레지스트리 제한 | enforce | Harbor만 허용 |
-| 리소스 제한 필수 | enforce | requests/limits 필수 |
-| 권한 있는 컨테이너 금지 | enforce | privileged: false |
-| 라벨 필수 | audit | app, version 라벨 |
+### 7.3 Vault (L2)
 
-### 7.4 시크릿 관리 흐름
+> 📎 **코드 참조**: `addons/values/vault/vault-values.yaml`
 
-```mermaid
-flowchart LR
-    Vault["Vault<br/>(mgmt)"]
-    ESO["External Secrets<br/>Operator"]
-    Secret["K8s Secret<br/>(자동 동기화)"]
-    Pod["Pod"]
+| 설정 | 값 | 비고 |
+|-----|-----|------|
+| `server.dev.enabled` | `true` | 자동 unseal, Root Token |
+| `ui.enabled` | `true` | 웹 UI 활성화 |
+| `server.service.type` | `LoadBalancer` | MetalLB IP 할당 |
 
-    Vault --> ESO --> Secret --> Pod
-
-    style Vault fill:#fff9c4
-    style ESO fill:#c8e6c9
-    style Secret fill:#bbdefb
-    style Pod fill:#f5f5f5
-```
+> **참고 (프로덕션 전환 시)**: Dev Mode는 프로덕션에 부적합합니다. HA 모드 + Raft 스토리지 + Auto-unseal(KMS) + TLS 활성화가 필요합니다.
 
 ---
 
 ## 8. 관찰성 아키텍처
 
-### 8.1 관찰성 스택
-
-| 영역 | 도구 | 배치 |
-|-----|------|------|
-| **Metrics** | Prometheus Agent → Thanos | Agent: 각 클러스터, Thanos: mgmt |
-| **Logs** | Promtail → Loki | Promtail: 각 클러스터, Loki: mgmt |
-| **Traces** | OpenTelemetry → Tempo | 선택적 |
-| **Dashboard** | Grafana | mgmt |
-| **Alerting** | Alertmanager | mgmt |
-
-### 8.2 데이터 흐름
-
-```mermaid
-flowchart LR
-    subgraph AppClusters["app1/app2 클러스터"]
-        PromAgent["Prometheus Agent<br/>(메트릭 수집)"]
-        Promtail["Promtail<br/>(로그 수집)"]
-    end
-
-    subgraph MgmtCluster["mgmt 클러스터"]
-        Thanos["Thanos<br/>(장기 저장)"]
-        Loki["Loki<br/>(로그 저장)"]
-        Grafana["Grafana<br/>(시각화)"]
-    end
-
-    PromAgent -->|"remote_write"| Thanos
-    Promtail -->|"push"| Loki
-    Thanos --> Grafana
-    Loki --> Grafana
-
-    style AppClusters fill:#e3f2fd
-    style MgmtCluster fill:#fce4ec
-```
-
-### 8.3 mgmt 장애 시 동작
-
-| 컴포넌트 | 동작 | 버퍼 시간 |
-|---------|------|----------|
-| **Prometheus Agent** | 로컬 버퍼링, 복구 후 재전송 | ~2.7시간 (내 환경 기준, 변동 가능) |
-| **Promtail** | positions 파일 + 버퍼 | 디스크 용량만큼 |
-| **External Secrets** | 캐시된 시크릿 유지 | refreshInterval (1h) |
-
----
-
-## 9. 장애 도메인 및 복원력
-
-### 9.1 장애 영향 매트릭스
-
-| 장애 컴포넌트 | 영향 범위 |
-|-------------|----------|
-| **mgmt 클러스터 전체 다운** | ❌ 시크릿 갱신 불가 (캐시로 동작) |
-| | ❌ 중앙 메트릭/로그 조회 불가 (로컬 수집 지속) |
-| | ❌ 새 인증서 발급 불가 (기존 인증서로 동작) |
-| | ❌ GitOps 배포 중단 (기존 워크로드는 정상 실행) |
-| | ✅ app1/app2 워크로드 정상 실행 |
-| **Vault 다운** | ❌ 새 시크릿 발급 불가 |
-| | ✅ External Secrets 캐시로 동작 |
-| **ArgoCD 다운** | ❌ GitOps 배포 중단 |
-| | ✅ 기존 워크로드 정상 실행 |
-| **Harbor (외부) 다운** | ❌ 새 이미지 Pull 불가 |
-| | ✅ 캐시된 이미지로 Pod 실행 |
-
-### 9.2 Graceful Degradation 설계
+### 8.1 3-Pillar 관찰성 스택
 
 ```mermaid
 flowchart TB
-    subgraph Normal["정상 상태"]
-        direction LR
-        app1["app 클러스터"] -->|"메트릭/로그/시크릿"| mgmt1["mgmt<br/>(Thanos/Loki/Vault)"]
+    subgraph Collect["수집 계층"]
+        prom["Prometheus<br/>(ServiceMonitor)"]
+        promtail["Promtail<br/>(로그 수집)"]
+        otel["OTel Collector<br/>(OTLP gRPC/HTTP)"]
     end
 
-    subgraph Degraded["mgmt 장애 시"]
-        direction TB
-        app2["app 클러스터"]
-        buffer["로컬 버퍼<br/>(Prometheus Agent, Promtail)"]
-        cache["캐시<br/>(External Secrets)"]
-        sync["복구 후 자동 동기화"]
-
-        app2 --> buffer
-        app2 --> cache
-        buffer -.->|"복구 후"| sync
+    subgraph Store["저장 계층"]
+        promdb["Prometheus TSDB<br/>(7일 retention)"]
+        loki["Loki<br/>(filesystem, 10Gi)"]
+        jaeger["Jaeger<br/>(memory)"]
     end
 
-    style Normal fill:#c8e6c9
-    style Degraded fill:#ffecb3
+    subgraph Visualize["시각화 계층"]
+        grafana["Grafana<br/>grafana.bocopile.io"]
+        jaegerui["Jaeger UI<br/>jaeger.bocopile.io"]
+        kiali["Kiali<br/>kiali.bocopile.io"]
+    end
+
+    prom --> promdb --> grafana
+    promtail --> loki --> grafana
+    otel --> jaeger --> jaegerui
+    jaeger --> kiali
+    promdb --> kiali
+
+    style Collect fill:#e3f2fd
+    style Store fill:#fff3e0
+    style Visualize fill:#e8f5e9
 ```
 
-### 9.3 복구 우선순위
+### 8.2 메트릭 (Prometheus + Grafana)
 
-| 우선순위 | 컴포넌트 | RTO |
-|---------|---------|-----|
-| **P0** | Harbor | 15분 |
-| **P1** | Vault, mgmt Control Plane, ArgoCD | 30분 |
-| **P2** | Thanos, Loki, Grafana | 1시간 |
+> 📎 **코드 참조**: `addons/values/monitoring/monitoring-values.yaml`
+
+| 설정 | 값 | 설명 |
+|-----|-----|------|
+| Helm Chart | `prometheus-community/kube-prometheus-stack` | Prometheus + Grafana + Alertmanager 번들 |
+| `prometheus.prometheusSpec.retention` | `7d` | 7일 보존 |
+| `prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues` | `false` | 모든 ServiceMonitor 수집 |
+| `grafana.adminPassword` | `admin` | 기본 관리자 비밀번호 |
+| `grafana.service.type` | `LoadBalancer` | MetalLB IP 할당 |
+
+### 8.3 로그 (Loki + Promtail)
+
+> 📎 **코드 참조**: `addons/values/logging/loki-values.yaml`, `promtail-values.yaml`
+
+**Loki**:
+
+| 설정 | 값 |
+|-----|-----|
+| `auth_enabled` | `false` |
+| `commonConfig.replication_factor` | `1` |
+| `storage.type` | `filesystem` |
+| PV | 10Gi, `local-path` SC |
+
+**Promtail**:
+
+| 설정 | 값 |
+|-----|-----|
+| Push 엔드포인트 | `http://loki.logging.svc.cluster.local:3100/loki/api/v1/push` |
+| Positions 파일 | `/tmp/positions.yaml` |
+
+### 8.4 트레이스 (OTel Collector + Jaeger + Kiali)
+
+> 📎 **코드 참조**: `addons/values/tracing/otel-values.yaml`, `jaeger-values.yaml`, `kiali-values.yaml`
+
+**OpenTelemetry Collector**:
+
+| 설정 | 값 |
+|-----|-----|
+| Image | `otel/opentelemetry-collector-contrib:0.91.0` |
+| Mode | `deployment` |
+| OTLP Receivers | gRPC (`:4317`), HTTP (`:4318`) |
+| Exporter | Jaeger OTLP (`jaeger-collector.tracing:14250`) |
+| Resources | requests: 200m/256Mi, limits: 500m/512Mi |
+
+**Jaeger**:
+
+| 설정 | 값 |
+|-----|-----|
+| Storage | `memory` (재시작 시 손실) |
+| Query 서비스 | LoadBalancer |
+
+**Kiali**:
+
+| 설정 | 값 |
+|-----|-----|
+| Auth | `anonymous` |
+| Prometheus 연동 | `kube-prometheus-stack-prometheus.monitoring:9090` |
+| Jaeger 연동 | `jaeger-query.tracing:16686` |
+| 서비스 타입 | LoadBalancer |
+
+### 8.5 데이터 흐름 요약
+
+| Pillar | 수집 | 저장 | 시각화 | 보존 |
+|--------|------|------|--------|------|
+| **메트릭** | Prometheus (ServiceMonitor) | Prometheus TSDB | Grafana, Kiali | 7일 |
+| **로그** | Promtail → Loki push API | Loki filesystem (10Gi) | Grafana | 디스크 용량 |
+| **트레이스** | OTel Collector (OTLP) | Jaeger (memory) | Jaeger UI, Kiali | 재시작까지 |
 
 ---
 
-## 10. 백업 및 DR 전략
+## 9. GitOps 및 시크릿 관리
 
-### 10.1 상태 계층 및 복구 전략
+### 9.1 ArgoCD
 
-| 계층 | 내용 | 백업 방법 | 복구 방법 | RPO |
-|-----|------|----------|----------|-----|
-| **L1: 클러스터 상태** | etcd | etcdctl 스냅샷 | etcd 복원 | 24h |
-| **L2: 워크로드 상태** | PV 데이터 | Velero + Restic | Velero restore | 24h |
-| **L3: 플랫폼 상태** | MinIO 데이터 | 버전관리/복제 | MinIO 복원 | 실시간 |
-| **L4: 설정 상태** | Git 매니페스트 | Git 원격 저장소 | ArgoCD 동기화 | 커밋 시 |
+> 📎 **코드 참조**: `addons/values/argocd/argocd-values.yaml`
 
-### 10.2 백업 아키텍처
+| 설정 | 값 |
+|-----|-----|
+| Helm Chart | `argo/argo-cd` |
+| 네임스페이스 | `argocd` |
+| 서비스 타입 | LoadBalancer |
+| Admin 비밀번호 | bcrypt 해시 설정 |
+| Ingress | 비활성 (LB 직접 접근) |
+| 접근 URL | `argocd.bocopile.io` |
 
-```mermaid
-flowchart TB
-    subgraph Clusters["클러스터"]
-        mgmt["mgmt"]
-        app1["app1"]
-        app2["app2"]
-    end
+### 9.2 Vault
 
-    subgraph VeleroAgents["Velero 에이전트"]
-        v1["Velero"]
-        v2["Velero"]
-        v3["Velero"]
-    end
+> 📎 **코드 참조**: `addons/values/vault/vault-values.yaml`
 
-    subgraph Storage["백업 저장소"]
-        minio["MinIO<br/>(mgmt)"]
-    end
+| 설정 | 값 |
+|-----|-----|
+| Helm Chart | `hashicorp/vault` |
+| 네임스페이스 | `vault` |
+| 모드 | Dev (자동 unseal, in-memory) |
+| UI | 활성 |
+| 접근 URL | `vault.bocopile.io` |
 
-    mgmt --> v1
-    app1 --> v2
-    app2 --> v3
+---
 
-    v1 --> minio
-    v2 --> minio
-    v3 --> minio
+## 10. 장애 도메인 및 복원력
 
-    style Clusters fill:#e3f2fd
-    style VeleroAgents fill:#fff3e0
-    style Storage fill:#e8f5e9
-```
+### 10.1 HA 구성
+
+| 계층 | 구성 | 장애 허용 |
+|-----|------|----------|
+| **Control Plane** | 3노드 (stacked etcd) | 1노드 장애 허용 |
+| **Worker** | 3노드 | 1~2노드 장애 시 워크로드 재스케줄링 |
+| **etcd** | 3인스턴스 (Raft 합의) | 1인스턴스 장애 허용 (과반수 유지) |
+
+### 10.2 장애 영향 매트릭스
+
+| 장애 컴포넌트 | 영향 | 완화 |
+|-------------|------|------|
+| **CP 1노드 다운** | etcd 클러스터 유지 (2/3 과반수) | 자동 failover, kubectl 정상 |
+| **Worker 1노드 다운** | Pod 재스케줄링 | Scheduler가 나머지 Worker에 배치 |
+| **Vault 재시작** | 모든 시크릿 데이터 손실 (Dev Mode) | 재설정 필요 |
+| **Jaeger 재시작** | 트레이스 데이터 손실 (memory) | 새 트레이스부터 수집 재개 |
+| **Prometheus 재시작** | 메트릭 데이터 손실 가능 | 재시작 후 수집 재개 |
+| **Istio istiod 다운** | 새 사이드카 주입 불가 | 기존 Envoy 프록시는 정상 동작 |
 
 ### 10.3 복구 시나리오
 
 | 시나리오 | 복구 방법 | 예상 RTO |
 |---------|----------|---------|
-| 특정 리소스 삭제 | ArgoCD 동기화 | 5분 |
-| etcd 데이터 손상 | etcd 스냅샷 복원 | 30분 |
-| Control Plane 노드 장애 | 노드 재생성 + etcd 복원 | 1시간 |
-| 전체 클러스터 장애 | Terraform 재배포 + Velero 복원 | 2시간 |
+| 특정 워크로드 삭제 | ArgoCD 동기화 또는 Helm 재설치 | 5분 |
+| Worker 노드 장애 | `multipass launch` + `kubeadm join` | 15분 |
+| CP 노드 장애 (1/3) | 자동 failover, 노드 재생성 | 30분 |
+| 전체 클러스터 장애 | `terraform destroy && terraform apply` + `bash install.sh` | 1시간 |
 
 ---
 
 ## 11. 리소스 계획
 
-### 11.1 클러스터별 리소스 할당
+### 11.1 VM 리소스 할당
 
-| 클러스터 | 노드 | RAM | CPU | 디스크 |
-|---------|------|-----|-----|--------|
-| mgmt | mgmt-cp | 4GB | 2 | 40GB |
-| mgmt | mgmt-worker-0 | 6GB | 2 | 60GB |
-| app1 | app1-cp | 3GB | 2 | 30GB |
-| app1 | app1-worker-0 | 4GB | 2 | 40GB |
-| app2 | app2-cp | 3GB | 2 | 30GB |
-| app2 | app2-worker-0 | 4GB | 2 | 40GB |
-| **합계** | | **24GB** | **12** | **240GB** |
+> 📎 **코드 참조**: `main.tf`, `variables.tf`
 
-### 11.2 주요 워크로드 리소스
+| 역할 | 노드 수 | RAM (단위) | RAM (합계) | Disk (단위) | Disk (합계) | CPU (단위) | CPU (합계) |
+|-----|---------|-----------|-----------|------------|------------|-----------|-----------|
+| Control Plane | 3 | 4GB | 12GB | 40GB | 120GB | 2 | 6 |
+| Worker | 3 | 4GB | 12GB | 50GB | 150GB | 2 | 6 |
+| **합계** | **6** | | **24GB** | | **270GB** | | **12 vCPU** |
 
-| 워크로드 | requests (CPU/Mem) | limits (CPU/Mem) | 클러스터 |
-|---------|-------------------|-----------------|---------|
-| Vault | 100m / 256Mi | 500m / 512Mi | mgmt |
-| Prometheus | 200m / 512Mi | 1000m / 2Gi | mgmt |
-| Thanos | 100m / 256Mi | 500m / 1Gi | mgmt |
-| Loki | 100m / 256Mi | 500m / 1Gi | mgmt |
-| Grafana | 100m / 128Mi | 500m / 512Mi | mgmt |
-| Prometheus Agent | 50m / 128Mi | 200m / 256Mi | app |
-| Promtail | 50m / 64Mi | 100m / 128Mi | app |
+### 11.2 네임스페이스별 워크로드 분포
+
+> 📎 **코드 참조**: `addons/install.sh`, `addons/verify.sh`
+
+| 네임스페이스 | 컴포넌트 | Helm 릴리스 |
+|------------|---------|------------|
+| `metallb-system` | MetalLB | `metallb` |
+| `local-path-storage` | Local Path Provisioner | `my-local-path-provisioner` |
+| `istio-system` | Istio Base, Istiod, Kiali | `istio-base`, `istiod`, `kiali` |
+| `istio-ingress` | Istio Gateway | `istio-ingress` |
+| `argocd` | ArgoCD | `argocd` |
+| `monitoring` | Prometheus + Grafana | `kube-prometheus-stack` |
+| `logging` | Loki, Promtail | `loki`, `promtail` |
+| `tracing` | Jaeger, OTel Collector | `jaeger`, `otel` |
+| `vault` | Vault | `vault` |
+
+### 11.3 OTel Collector 리소스 명세
+
+> 📎 **코드 참조**: `addons/values/tracing/otel-values.yaml`
+
+| 리소스 | requests | limits |
+|--------|----------|--------|
+| CPU | 200m | 500m |
+| Memory | 256Mi | 512Mi |
+
+> **참고**: 다른 워크로드는 Helm Chart 기본값을 사용합니다. 리소스 제약이 발생하면 각 values 파일에서 `resources` 블록을 추가/조정합니다.
 
 ---
 
-## 부록: 관련 문서
+## 부록: 실행 명령어 참조
 
-| 문서 | 설명 |
-|-----|------|
-| [IMPLEMENTATION-GUIDE.md](IMPLEMENTATION-GUIDE.md) | Terraform, Helm, 설치 코드 |
-| [OPERATIONS-RUNBOOK.md](OPERATIONS-RUNBOOK.md) | 백업/복구/업그레이드 절차 |
+```bash
+# Phase 1-3: 인프라 + 클러스터 생성
+terraform init && terraform apply -auto-approve
+
+# Phase 4: 플랫폼 애드온 설치
+cd addons && bash install.sh
+
+# Phase 5: 검증
+bash verify.sh
+
+# DNS 적용
+sudo cp hosts.generated /etc/hosts
+
+# 전체 애드온 삭제
+bash uninstall.sh
+
+# 전체 인프라 삭제
+terraform destroy -auto-approve
+```
+
+## 부록: 프로덕션 전환 시 고려사항
+
+| 영역 | 현재 (로컬) | 프로덕션 권장 |
+|-----|-----------|-------------|
+| **클러스터** | 단일 HA | 멀티클러스터 (mgmt + app) |
+| **CNI** | Flannel | Cilium (Network Policy, Hubble) |
+| **Vault** | Dev Mode (in-memory) | HA Mode + Raft + Auto-unseal |
+| **Jaeger** | memory 스토리지 | Elasticsearch/Cassandra 백엔드 |
+| **Prometheus** | 로컬 7일 | Thanos/Mimir 장기 저장 |
+| **백업** | 없음 | Velero + 오브젝트 스토리지 |
+| **보안** | Istio mTLS | + PSA + Kyverno + Falco |
+| **시크릿** | Vault 단독 | + External Secrets Operator + cert-manager |
+| **스토리지** | local-path (Delete) | CSI 드라이버 + Retain 정책 |
