@@ -1,8 +1,8 @@
 # Kubernetes 멀티클러스터 아키텍처
 
-> **버전**: 2.0.0
+> **버전**: 2.1.0
 > **Kubernetes**: v1.35 (Timbernetes)
-> **최종 수정일**: 2026-02-05
+> **최종 수정일**: 2026-02-17
 > **관련 문서**: [구현 가이드](IMPLEMENTATION-GUIDE.md) | [운영 런북](OPERATIONS-RUNBOOK.md)
 
 ---
@@ -20,6 +20,7 @@
 9. [장애 도메인 및 복원력](#9-장애-도메인-및-복원력)
 10. [백업 및 DR 전략](#10-백업-및-dr-전략)
 11. [리소스 계획](#11-리소스-계획)
+12. [플랫폼 부가 도구](#12-플랫폼-부가-도구)
 
 ---
 
@@ -63,7 +64,9 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | **GitOps** | ArgoCD (mgmt 클러스터) |
 | **시크릿/PKI** | Vault + External Secrets + cert-manager |
 | **관찰성** | Prometheus + Thanos + Loki + Grafana |
-| **보안** | PSA + Kyverno + Falco |
+| **보안** | PSA + Kyverno + Falco + Tetragon + Trivy |
+| **AIOps/최적화** | K8sGPT + OpenCost + Goldilocks/VPA |
+| **카오스 엔지니어링** | Chaos Mesh |
 | **백업** | Velero + MinIO |
 
 ### 1.5 제약 조건
@@ -237,9 +240,10 @@ flowchart TB
 
 | 클러스터 | 역할 | 컴포넌트 |
 |---------|------|---------|
-| **mgmt** | 플랫폼 서비스 | Vault, Prometheus, Thanos, Loki, Grafana, Velero, MinIO, k8sgpt, ArgoCD |
+| **mgmt** | 플랫폼 서비스 | Vault, Prometheus, Thanos, Loki, Grafana, Velero, MinIO, ArgoCD, K8sGPT, Trivy, OpenCost, Goldilocks/VPA, Chaos Mesh |
 | **app1** | 워크로드 A | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
 | **app2** | 워크로드 B | 애플리케이션, Prometheus Agent, Promtail, Kyverno, Falco |
+| **전체** | 런타임 보안 | Cilium, Tetragon (DaemonSet), MetalLB |
 
 ### 4.3 클러스터 스펙
 
@@ -392,16 +396,40 @@ flowchart TB
 
     subgraph L5["L5. 런타임 보안"]
         runtime["Falco<br/>이상 행위 탐지"]
+        tetragon["Tetragon<br/>eBPF 커널레벨 보안 (전 클러스터)"]
     end
 
-    L1 --> L2 --> L3 --> L4 --> L5
+    subgraph L6["L6. 취약점 스캔"]
+        trivy["Trivy Operator<br/>이미지/K8s/IaC 스캔 + SBOM"]
+    end
+
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6
 
     style L1 fill:#ffcdd2
     style L2 fill:#f8bbd9
     style L3 fill:#e1bee7
     style L4 fill:#d1c4e9
     style L5 fill:#c5cae9
+    style L6 fill:#b3e5fc
 ```
+
+### 7.5 Tetragon: eBPF 런타임 보안
+
+| 항목 | 설명 |
+|-----|------|
+| **배치 범위** | 전체 클러스터 (DaemonSet) |
+| **기능** | 프로세스 실행/파일 접근/네트워크 이벤트를 커널 레벨에서 감지 |
+| **리소스** | ~100MB/노드 |
+| **연동** | Cilium 형제 프로젝트, cilium/tetragon Helm 차트 |
+
+### 7.6 Trivy Operator: 취약점 스캔
+
+| 항목 | 설명 |
+|-----|------|
+| **배치 범위** | mgmt 클러스터 |
+| **기능** | 컨테이너 이미지 CVE 스캔, K8s 리소스 감사, SBOM 생성 |
+| **리소스** | ~200MB |
+| **연동** | Prometheus ServiceMonitor, Grafana 대시보드 |
 
 ### 7.2 PSA 정책 매핑
 
@@ -452,6 +480,9 @@ flowchart LR
 | **Traces** | OpenTelemetry → Tempo | 선택적 |
 | **Dashboard** | Grafana | mgmt |
 | **Alerting** | Alertmanager | mgmt |
+| **AIOps** | K8sGPT Operator | mgmt (AI 기반 클러스터 진단) |
+| **비용 가시화** | OpenCost | mgmt (Prometheus 연동) |
+| **리소스 최적화** | VPA + Goldilocks | mgmt (request/limit 자동 추천) |
 
 ### 8.2 데이터 흐름
 
@@ -530,7 +561,18 @@ flowchart TB
     style Degraded fill:#ffecb3
 ```
 
-### 9.3 복구 우선순위
+### 9.3 Chaos Mesh: 장애 격리 검증
+
+mgmt 클러스터에 Chaos Mesh를 배치하여 아키텍처 불변 조건(C1: mgmt 장애 시 app 독립 실행)을 실제로 검증합니다.
+
+| 테스트 시나리오 | Chaos 유형 | 검증 항목 |
+|---------------|-----------|----------|
+| mgmt CP 네트워크 격리 | NetworkChaos | app1/app2 워크로드 정상 실행 확인 |
+| Vault Pod 강제 종료 | PodChaos | External Secrets 캐시 동작 확인 |
+| Prometheus 네트워크 지연 | NetworkChaos | Agent WAL 버퍼링 확인 |
+| etcd I/O 지연 주입 | IOChaos | API server 응답시간 측정 |
+
+### 9.4 복구 우선순위
 
 | 우선순위 | 컴포넌트 | RTO |
 |---------|---------|-----|
@@ -597,7 +639,20 @@ flowchart TB
 
 ## 11. 리소스 계획
 
-### 11.1 클러스터별 리소스 할당
+### 11.1 호스트 RAM 전체 버짓 (64GB)
+
+| 계층 | 구성요소 | RAM |
+|-----|---------|-----|
+| **호스트** | macOS 커널 + 시스템 | 5.0 GB |
+| | Docker Desktop (Harbor + Nexus) | 6.0 GB |
+| | Multipass 데몬 | 0.5 GB |
+| | IDE, 브라우저, Terraform CLI 등 | 2.5 GB |
+| **호스트 소계** | | **14.0 GB** |
+| **VM** | 6개 Multipass VM (아래 상세) | **24.0 GB** |
+| **합계** | | **38.0 GB** |
+| **전체 여유** | | **26.0 GB** |
+
+### 11.2 VM 할당
 
 | 클러스터 | 노드 | RAM | CPU | 디스크 |
 |---------|------|-----|-----|--------|
@@ -609,7 +664,82 @@ flowchart TB
 | app2 | app2-worker-0 | 4GB | 2 | 40GB |
 | **합계** | | **24GB** | **12** | **240GB** |
 
-### 11.2 주요 워크로드 리소스
+### 11.3 VM 내부 실사용 상세 (병목 분석)
+
+#### mgmt-cp (4GB)
+
+| 구성요소 | RAM |
+|----------|-----|
+| OS + 커널 | 300 MB |
+| kubelet + containerd | 200 MB |
+| kube-apiserver | 400 MB |
+| etcd | 300 MB |
+| kube-scheduler + controller-manager | 150 MB |
+| CoreDNS x2 | 60 MB |
+| Cilium agent | 200 MB |
+| Tetragon agent | 100 MB |
+| MetalLB speaker | 30 MB |
+| **소계 / 여유** | **~1.7 GB / ~2.3 GB** |
+
+#### mgmt-worker-0 (6GB) — 병목 노드
+
+| 구성요소 | 카테고리 | RAM |
+|----------|----------|-----|
+| OS + 커널 | 시스템 | 300 MB |
+| kubelet + containerd | 시스템 | 200 MB |
+| Cilium agent + operator + Hubble | CNI | 300 MB |
+| Tetragon agent | 보안 | 100 MB |
+| MetalLB controller + speaker | 네트워크 | 80 MB |
+| Istiod + ingress gateway | 서비스 메시 | 400 MB |
+| ArgoCD (server+repo+controller+redis+dex) | GitOps | 700 MB |
+| Prometheus + Alertmanager | 모니터링 | 550 MB |
+| Grafana | 모니터링 | 200 MB |
+| node-exporter + kube-state-metrics | 모니터링 | 80 MB |
+| Loki | 로깅 | 300 MB |
+| Promtail | 로깅 | 100 MB |
+| Jaeger (in-memory) | 트레이싱 | 300 MB |
+| OTel Collector | 트레이싱 | 256 MB |
+| Kiali | 트레이싱 | 100 MB |
+| Vault (dev) | 시크릿 | 100 MB |
+| local-path-provisioner | 스토리지 | 30 MB |
+| Trivy Operator | 보안 | 200 MB |
+| K8sGPT Operator | AIOps | 128 MB |
+| OpenCost | 비용 | 100 MB |
+| VPA + Goldilocks | 최적화 | 300 MB |
+| Chaos Mesh | 카오스 | 200 MB |
+| **소계** | | **~5.0 GB** |
+| **여유** | | **~1.0 GB** |
+
+> **주의**: mgmt-worker-0은 여유가 ~1GB로 가장 빡빡합니다. 추가 워크로드 배치 시 8GB로 증설을 고려하세요.
+
+#### app1-cp / app2-cp (각 3GB)
+
+| 구성요소 | RAM |
+|----------|-----|
+| OS + 커널 | 300 MB |
+| kubelet + containerd | 200 MB |
+| kube-apiserver + etcd + scheduler + cm | 750 MB |
+| CoreDNS x2 | 60 MB |
+| Cilium agent | 200 MB |
+| Tetragon agent | 100 MB |
+| MetalLB speaker | 30 MB |
+| **소계 / 여유** | **~1.6 GB / ~1.4 GB** |
+
+#### app1-worker-0 / app2-worker-0 (각 4GB)
+
+| 구성요소 | RAM |
+|----------|-----|
+| OS + 커널 | 300 MB |
+| kubelet + containerd | 200 MB |
+| Cilium agent + operator + Hubble | 300 MB |
+| Tetragon agent | 100 MB |
+| MetalLB controller + speaker | 80 MB |
+| Promtail (향후) | 100 MB |
+| node-exporter | 30 MB |
+| **소계** | **~1.1 GB** |
+| **애플리케이션용 여유** | **~2.9 GB** |
+
+### 11.4 워크로드 리소스 요약
 
 | 워크로드 | requests (CPU/Mem) | limits (CPU/Mem) | 클러스터 |
 |---------|-------------------|-----------------|---------|
@@ -618,8 +748,91 @@ flowchart TB
 | Thanos | 100m / 256Mi | 500m / 1Gi | mgmt |
 | Loki | 100m / 256Mi | 500m / 1Gi | mgmt |
 | Grafana | 100m / 128Mi | 500m / 512Mi | mgmt |
+| Trivy Operator | 100m / 200Mi | 500m / 500Mi | mgmt |
+| K8sGPT Operator | 50m / 128Mi | 200m / 256Mi | mgmt |
+| OpenCost | 50m / 100Mi | 200m / 256Mi | mgmt |
+| VPA + Goldilocks | 100m / 300Mi | 500m / 512Mi | mgmt |
+| Chaos Mesh | 100m / 200Mi | 500m / 512Mi | mgmt |
+| Tetragon | 50m / 100Mi | 200m / 256Mi | 전체 |
 | Prometheus Agent | 50m / 128Mi | 200m / 256Mi | app |
 | Promtail | 50m / 64Mi | 100m / 128Mi | app |
+
+---
+
+## 12. 플랫폼 부가 도구
+
+### 12.1 도구 개요
+
+| 도구 | 카테고리 | 배치 | RAM | CNCF 상태 |
+|-----|---------|------|-----|----------|
+| **Tetragon** | eBPF 런타임 보안 | 전체 클러스터 (DaemonSet) | ~100MB/노드 | Cilium 하위 |
+| **Trivy Operator** | 취약점 스캔 | mgmt | ~200MB | Graduated |
+| **K8sGPT** | AI 클러스터 진단 | mgmt | ~128MB | Sandbox |
+| **OpenCost** | 리소스 비용 가시화 | mgmt | ~100MB | Incubating |
+| **Goldilocks + VPA** | 리소스 최적화 추천 | mgmt | ~300MB | SIG 프로젝트 |
+| **Chaos Mesh** | 장애 주입 테스트 | mgmt | ~200MB | Incubating |
+| **Kubescape** | 컴플라이언스 스캔 | 호스트 CLI | 0 (VM 외부) | Incubating |
+
+### 12.2 Terraform 파이프라인 배치
+
+```
+cloud_init → vm(6개) → init(3) → join(3) → merge_kubeconfigs
+  → install_cilium → install_tetragon ──────────────────┐
+  → install_metallb → setup_clustermesh ─────────────────┤
+                                                         ├→ install_platform_addons
+                                                         │   (Trivy, K8sGPT, OpenCost,
+                                                         │    VPA+Goldilocks, Chaos Mesh)
+                                                         └─
+```
+
+### 12.3 Tetragon: eBPF 런타임 보안
+
+- **설치**: `scripts/install-tetragon.sh` (전 클러스터, clusters.json 기반)
+- **기능**: 프로세스 실행, 파일 접근, 네트워크 이벤트를 eBPF 레벨에서 실시간 감지
+- **Cilium과의 관계**: 동일 eBPF 기반, Cilium이 L3/L4 네트워크 정책이라면 Tetragon은 프로세스/파일 레벨 정책
+- **TracingPolicy CRD**: 커스텀 감지 규칙 정의 가능
+
+### 12.4 Trivy Operator: 취약점 관리
+
+- **설치**: `scripts/install-platform-addons.sh` (mgmt)
+- **기능**: 컨테이너 이미지 CVE 스캔, K8s CIS 벤치마크, SBOM 생성
+- **연동**: Prometheus ServiceMonitor → Grafana 대시보드, Harbor 이미지 스캔과 보완적
+- **CRD**: `VulnerabilityReport`, `ConfigAuditReport`, `SbomReport`
+
+### 12.5 K8sGPT: AI 클러스터 진단
+
+- **설치**: `scripts/install-platform-addons.sh` (mgmt)
+- **기능**: AI 모델(OpenAI/Claude)을 활용하여 클러스터 이상 상태를 자연어로 진단
+- **사용법**: K8sGPT CR 생성 후 AI 백엔드 시크릿 설정 필요
+- **대안**: 호스트에서 `brew install k8sgpt` CLI로도 사용 가능 (VM RAM 미소비)
+
+### 12.6 OpenCost: 리소스 비용 가시화
+
+- **설치**: `scripts/install-platform-addons.sh` (mgmt)
+- **기능**: 네임스페이스/팟별 리소스 비용 가시화, Prometheus 메트릭 기반
+- **연동**: 기존 kube-prometheus-stack을 데이터소스로 직접 사용
+- **접근**: `kubectl port-forward svc/opencost 9090:9090 -n opencost`
+
+### 12.7 VPA + Goldilocks: 리소스 최적화
+
+- **설치**: `scripts/install-platform-addons.sh` (mgmt)
+- **구성**: VPA recommender-only (updater/admission 비활성화) + Goldilocks 대시보드
+- **기능**: 실제 리소스 사용량 기반으로 requests/limits 추천
+- **활성화**: 네임스페이스에 `goldilocks.fairwinds.com/enabled=true` 라벨 추가
+- **리소스 제약 환경에서 특히 유용**: 과다 할당 → 실측 기반 최적화로 RAM 절약
+
+### 12.8 Chaos Mesh: 카오스 엔지니어링
+
+- **설치**: `scripts/install-platform-addons.sh` (mgmt)
+- **기능**: Pod/네트워크/I/O/시간/커널 장애 주입
+- **핵심 용도**: 아키텍처 불변 조건(C1) "mgmt 장애 시 app 독립 실행" 실증 검증
+- **대시보드**: `kubectl port-forward svc/chaos-dashboard 2333:2333 -n chaos-mesh`
+
+### 12.9 Kubescape: 컴플라이언스 (호스트 CLI)
+
+- **설치**: 호스트에서 `brew install kubescape` (VM RAM 미사용)
+- **기능**: NSA/MITRE 프레임워크 기반 보안 컴플라이언스 스캔
+- **사용법**: `kubescape scan --kubeconfig ~/kubeconfig-multi`
 
 ---
 

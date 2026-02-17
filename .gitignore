@@ -11,6 +11,11 @@ terraform.tfstate.backup
 # Local kubeconfig
 kubeconfig
 kubeconfig.*
+kubeconfig-multi
+
+# Generated files (cloud-init, kubeconfigs, join scripts)
+generated/*
+!generated/.gitkeep
 
 # Log files
 *.log
