@@ -1,288 +1,268 @@
-# On-Premise Kubernetes 클러스터 구축 프롬프트
+# Azure AKS 멀티클러스터 아키텍처 구축 프롬프트
 
 > **SMART+ER 프롬프트 프레임워크** 기반 작성
 > **참조 문서**: [ARCHITECTURE.md](ARCHITECTURE.md)
-> **IaC 소스**: 본 프롬프트의 모든 내용은 실제 Terraform / Shell Script / Helm Values 코드에서 도출
+> **IaC 소스**: 본 프롬프트의 모든 내용은 `azure/` 디렉터리의 실제 Terraform / Helm Values / Shell Script 코드에서 도출
 
 ---
 
 ## S: 상황
 
-- macOS(Apple Silicon) 호스트에서 로컬 Kubernetes 클러스터 환경을 구축해야 합니다
-- 개발/학습/시연 목적의 플랫폼 엔지니어링 환경을 로컬에서 재현하는 프로젝트입니다
-- Multipass VM 위에 kubeadm v1.35(Timbernetes)로 단일 HA 클러스터를 프로비저닝합니다
-- Terraform(`null_resource` + `local-exec`)으로 VM 생성 → Shell Script로 클러스터 부트스트랩 → Helm CLI로 애드온 설치하는 3단계 파이프라인입니다
-- 단일 클러스터 내에 Control Plane 3노드(HA) + Worker 3노드, 총 6개 VM으로 구성합니다
+- Azure 클라우드에서 Kubernetes 멀티클러스터 환경을 구축해야 합니다
+- 시연 및 개발(PoC) 목적으로, Spot VM + AKS Free Tier로 월 $60-80 비용 최적화가 핵심 제약사항입니다
+- 리전은 Korea Central이며, AKS(Azure Kubernetes Service)를 기반으로 합니다
+- Terraform 모듈(vnet, aks, keyvault, observability) 4개로 인프라를 코드화했습니다
+- 클러스터 3개: AKS-mgmt(1 Spot 노드) + AKS-app1(2 Spot 노드) + AKS-app2(2 Spot 노드)
 
 ### 현재 IaC 프로젝트 구조
 
 ```
-mac-k8s-multipass-terraform/
-├── main.tf                           # VM 프로비저닝 + 클러스터 초기화 오케스트레이션
-├── variables.tf                      # masters(3), workers(3), multipass_image(24.04)
-├── versions.tf                       # Terraform >= 1.11.3, hashicorp/null ~> 3.2
-├── init/
-│   └── k8s.yaml                      # cloud-init: containerd + kubeadm v1.35 설치
-├── shell/
-│   ├── cluster-init.sh               # kubeadm init + Flannel CNI + join 스크립트 생성
-│   ├── join-all.sh                   # CP/Worker 노드 조인 + kubeconfig 복사
-│   ├── delete-vm.sh                  # Multipass VM 전체 삭제
-│   ├── mysql-install.sh              # MySQL VM 구성 (부가)
-│   └── redis-install.sh              # Redis VM 구성 (부가)
-└── addons/
-    ├── install.sh                    # 12개 Helm 애드온 순차 설치 + DNS 매핑
-    ├── uninstall.sh                  # Helm 릴리스 역순 삭제 + /etc/hosts 정리
-    ├── verify.sh                     # 12개 릴리스 상태/Pod/LB 검증
-    └── values/
-        ├── metallb/metallb-config.yaml
-        ├── rancher/local-path.yaml
-        ├── istio/istio-values.yaml
-        ├── argocd/argocd-values.yaml
-        ├── monitoring/monitoring-values.yaml
-        ├── logging/loki-values.yaml
-        ├── logging/promtail-values.yaml
-        ├── tracing/jaeger-values.yaml
-        ├── tracing/otel-values.yaml
-        ├── tracing/kiali-values.yaml
-        └── vault/vault-values.yaml
+azure/
+├── main.tf                          # Root: RG + 4개 모듈 호출
+├── variables.tf                     # 입력 변수 (location, vm_size, node_count 등)
+├── outputs.tf                       # 출력 (클러스터명, kubeconfig 명령어)
+├── versions.tf                      # azurerm ~> 3.0 + backend(Azure Storage)
+├── terraform.tfvars.example         # 변수 예시 파일
+├── modules/
+│   ├── vnet/                        # VNet + 4 Subnets + 3 NSG + NSG↔Subnet 연결
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   ├── aks/                         # AKS Cluster + Spot Node Pool (재사용 모듈)
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   ├── keyvault/                    # Key Vault + Workload Identity + Role Assignment
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   └── observability/               # Log Analytics + Container Insights
+│       ├── main.tf
+│       ├── variables.tf
+│       └── outputs.tf
+├── addons/
+│   ├── install.sh                   # Cilium + ArgoCD + ESO 설치 (3 클러스터)
+│   ├── uninstall.sh                 # 애드온 역순 삭제
+│   └── values/
+│       ├── argocd-values.yaml       # ArgoCD Helm values
+│       └── external-secrets-values.yaml  # ESO Helm values
+└── scripts/
+    ├── setup-kubeconfig.sh          # 3 클러스터 kubeconfig 일괄 등록
+    └── cleanup.sh                   # 리소스 그룹 전체 삭제
 ```
 
 ## M: 목표
 
-- **`terraform apply` 한 번으로** Multipass VM 6개 생성 → kubeadm HA 클러스터 부트스트랩까지 완전 자동화
-- **`bash addons/install.sh` 한 번으로** 12개 플랫폼 컴포넌트(서비스 메시, 관찰성, GitOps, 시크릿) 일괄 설치
-- Istio 서비스 메시(mTLS) 기반의 제로 트러스트 네트워크 구현
-- Prometheus + Grafana + Loki + Promtail + Jaeger + OpenTelemetry로 메트릭/로그/트레이스 3-Pillar 관찰성 확보
-- MetalLB L2 모드로 LoadBalancer 서비스 제공, `*.bocopile.io` 도메인 매핑
-- HashiCorp Vault(Dev Mode)로 시크릿 관리 기반 마련
-- ArgoCD로 GitOps 배포 파이프라인 구축
+- **`terraform apply` 한 번으로** Azure 인프라 전체 생성: RG + VNet(4 Subnet) + AKS 3개 + Key Vault + Log Analytics
+- **`bash addons/install.sh` 한 번으로** Cilium BYO CNI(3 클러스터) + ArgoCD(mgmt) + External Secrets(mgmt) 설치
+- Spot VM(Standard_D2s_v3)으로 전 노드 운영, 월 **$60-80** 비용 목표
+- Cilium BYO CNI(eBPF) 기반 네트워크 정책 + 멀티클러스터 서비스 디스커버리 기반 마련
+- Azure Key Vault + Workload Identity + External Secrets Operator로 시크릿 관리
+- Azure Monitor + Container Insights로 3개 클러스터 중앙 관찰성
+- ArgoCD로 3개 클러스터 GitOps 배포 파이프라인
 
 ## A: 단계별 수행
 
 "중요: 각 단계가 완료되면 사용자에게 결과를 확인받고 다음 단계 진행 여부 확인해야 합니다."
 
-### Phase 1: 호스트 환경 준비
+### Phase 1: 사전 준비
 
-- 필수 도구 설치 확인: Multipass, Terraform >= 1.11.3, Helm CLI, kubectl, jq
-- `versions.tf`의 provider 요구사항 충족 확인
+- 필수 도구 설치: Azure CLI, Terraform >= 1.11.0, Helm v3+, kubectl
+- Azure 로그인 및 구독 설정
+
+```bash
+az login
+az account set --subscription "<subscription-id>"
+```
+
+- Terraform State 백엔드용 Azure Storage 사전 생성
 
 ```hcl
-# versions.tf
-terraform {
-  required_version = ">= 1.11.3"
-  required_providers {
-    null = {
-      source  = "hashicorp/null"
-      version = "~> 3.2"
-    }
-  }
+# azure/versions.tf
+backend "azurerm" {
+  resource_group_name  = "rg-terraform-state"
+  storage_account_name = "stterraformstate"
+  container_name       = "tfstate"
+  key                  = "k8s-demo.tfstate"
 }
 ```
 
-### Phase 2: VM 프로비저닝 (Terraform)
+### Phase 2: Azure 인프라 프로비저닝 (Terraform)
 
-- `terraform init && terraform apply`로 6개 VM 자동 생성
-- 실행 순서: masters(3) → workers(3) → init_cluster → join_all (depends_on 체인)
+- `terraform init && terraform apply`로 전체 인프라 자동 생성
+- `azure/main.tf`가 4개 모듈을 순서대로 호출:
+
+```
+1. azurerm_resource_group  → rg-k8s-demo (Korea Central)
+2. module "vnet"           → VNet(10.0.0.0/8) + 4 Subnets + 3 NSG
+3. module "observability"  → Log Analytics(5GB/일, 30일) + Container Insights
+4. module "aks_mgmt"       → AKS-mgmt (System 1노드 + Spot 1노드)
+5. module "aks_app1"       → AKS-app1 (System 1노드 + Spot 2노드)
+6. module "aks_app2"       → AKS-app2 (System 1노드 + Spot 2노드)
+7. module "keyvault"       → Key Vault + Workload Identity + Role Assignment
+```
+
+- AKS 모듈 핵심 설정 (`modules/aks/main.tf`):
+    - `network_plugin = "none"` → Cilium BYO CNI (ADR-A02)
+    - `oidc_issuer_enabled = true` + `workload_identity_enabled = true` → Workload Identity
+    - `oms_agent` → Container Insights 연동
+    - `azure_policy_enabled = true` → Azure Policy for AKS
+
+### Phase 3: Spot Node Pool 구성
+
+- 각 AKS 클러스터에 Spot Node Pool 자동 생성 (`modules/aks/main.tf`):
 
 ```hcl
-# main.tf - 핵심 리소스 5개
-resource "null_resource" "masters"      # Multipass VM 3개 (4GB/40GB/2CPU)
-resource "null_resource" "workers"      # Multipass VM 3개 (4GB/50GB/2CPU)
-resource "null_resource" "init_cluster" # cluster-init.sh 실행
-resource "null_resource" "join_all"     # join-all.sh 실행
-resource "null_resource" "cleanup"      # terraform destroy 시 VM 전체 삭제
+resource "azurerm_kubernetes_cluster_node_pool" "spot" {
+  priority        = "Spot"
+  eviction_policy = "Delete"
+  spot_max_price  = var.spot_max_price  # -1 = On-Demand까지 허용
+  node_labels = { "kubernetes.azure.com/scalesetpriority" = "spot" }
+  node_taints = [ "kubernetes.azure.com/scalesetpriority=spot:NoSchedule" ]
+}
 ```
 
-- cloud-init(`init/k8s.yaml`)이 각 VM에서 자동 실행:
-  - 커널 모듈 로드: `overlay`, `br_netfilter`
-  - sysctl 설정: `bridge-nf-call-iptables=1`, `ip_forward=1`
-  - containerd 설치 + `SystemdCgroup = true` 설정
-  - kubeadm/kubelet/kubectl v1.35 설치 + `apt-mark hold`
+### Phase 4: 플랫폼 애드온 설치 (Helm + Shell)
 
-### Phase 3: kubeadm 클러스터 부트스트랩 (Shell Script)
-
-- `cluster-init.sh`: k8s-master-0에서 kubeadm init 실행
-
-```bash
-kubeadm init \
-  --control-plane-endpoint "${MASTER_IP}:6443" \
-  --upload-certs \
-  --pod-network-cidr=10.244.0.0/16
-```
-
-- Flannel CNI 자동 배포 (`kube-flannel.yml`)
-- join 스크립트 자동 생성 (worker용 `join.sh` + CP용 `join-controlplane.sh`)
-
-- `join-all.sh`: 나머지 5개 노드 조인
-  - CP 노드 1, 2 → `join-controlplane.sh`로 조인
-  - Worker 노드 0~2 → `join.sh`로 조인
-  - kubeconfig를 `~/kubeconfig`로 복사, `KUBECONFIG` 환경변수 설정
-
-### Phase 4: 플랫폼 애드온 설치 (Helm CLI)
-
-- `bash addons/install.sh`로 12개 컴포넌트 순차 설치
-- 설치 순서 및 의존성:
+- `bash azure/addons/install.sh`로 5단계 순차 설치:
 
 ```
-1. MetalLB          → IP 풀 할당 (sleep 40 대기)
-2. Local Path       → 동적 스토리지 프로비저너
-3. Istio Base       → CRD 설치
-4. Istiod           → 컨트롤 플레인
-5. Istio Gateway    → Ingress 게이트웨이
-6. ArgoCD           → GitOps
-7. Prometheus Stack → 메트릭 + Grafana
-8. Loki             → 로그 집계
-9. Promtail         → 로그 수집
-10. Jaeger          → 분산 트레이싱
-11. OTel Collector  → 텔레메트리 파이프라인
-12. Kiali           → 서비스 메시 시각화
-13. Vault           → 시크릿 관리
+[1/5] kubeconfig 설정 (aks-mgmt)
+[2/5] Cilium BYO CNI 설치 (mgmt) + 60초 대기
+[3/5] ArgoCD 설치 (mgmt, LoadBalancer)
+[4/5] External Secrets Operator 설치 (mgmt, Workload Identity 연동)
+[5/5] app1/app2 클러스터 Cilium 설치
 ```
-
-- 설치 후 LoadBalancer IP → `*.bocopile.io` 도메인 매핑 파일(`hosts.generated`) 자동 생성
 
 ### Phase 5: 검증
 
-- `bash addons/verify.sh`로 12개 릴리스 상태 일괄 점검
-  - Helm 릴리스 존재 여부
-  - 네임스페이스 존재 여부
-  - Running Pod 수 / 전체 Pod 수
-  - LoadBalancer 서비스 수
+```bash
+# kubeconfig 전체 등록
+bash azure/scripts/setup-kubeconfig.sh
+
+# 클러스터 상태 확인
+kubectl config get-contexts
+kubectl get nodes
+
+# ArgoCD 접근
+kubectl -n argocd get svc argocd-server
+
+# ESO 상태
+kubectl -n external-secrets get pods
+```
 
 ## R: 결과물
 
 실제 IaC 코드로 구현된 결과물:
 
-### 1. Terraform 모듈 (3파일)
+### 1. Terraform 모듈 (4개, 16파일)
 
-| 파일 | 역할 |
-|-----|------|
-| `main.tf` | `null_resource` 5개로 VM 생성 → 클러스터 초기화 → 노드 조인 → 삭제 오케스트레이션 |
-| `variables.tf` | `masters(3)`, `workers(3)`, `multipass_image("24.04")` |
-| `versions.tf` | Terraform >= 1.11.3, `hashicorp/null ~> 3.2` |
+| 모듈 | Azure 리소스 | 코드 참조 |
+|-----|-------------|----------|
+| **Root** | `azurerm_resource_group` | `azure/main.tf` |
+| **vnet** | `azurerm_virtual_network` + 4 `subnet` + 3 `nsg` + 3 `nsg_association` | `azure/modules/vnet/main.tf` |
+| **aks** (x3) | `azurerm_kubernetes_cluster` + `node_pool` (Spot) | `azure/modules/aks/main.tf` |
+| **keyvault** | `azurerm_key_vault` + `user_assigned_identity` + `federated_identity_credential` + `role_assignment` | `azure/modules/keyvault/main.tf` |
+| **observability** | `azurerm_log_analytics_workspace` + `log_analytics_solution` | `azure/modules/observability/main.tf` |
 
-### 2. Shell Script (5파일)
+### 2. Helm Values (2파일)
 
-| 파일 | 역할 |
-|-----|------|
-| `shell/cluster-init.sh` | kubeadm init + Flannel CNI + join 스크립트 생성 |
-| `shell/join-all.sh` | CP/Worker 조인 + kubeconfig 복사 |
-| `shell/delete-vm.sh` | Multipass VM 전체 삭제 (`jq` 파이프라인) |
-| `shell/mysql-install.sh` | MySQL 사용자/DB 설정 |
-| `shell/redis-install.sh` | Redis 비밀번호 설정 |
+| 컴포넌트 | Values 파일 | 핵심 설정 |
+|---------|-----------|----------|
+| **ArgoCD** | `addons/values/argocd-values.yaml` | LB 서비스, insecure 모드 |
+| **External Secrets** | `addons/values/external-secrets-values.yaml` | Workload Identity 연동, CRD 자동 설치 |
 
-### 3. Helm Values (11파일) + 설치/삭제/검증 스크립트 (3파일)
+### 3. Shell Script (4파일)
 
-| 컴포넌트 | Helm Chart | 네임스페이스 | Values 파일 | 핵심 설정 |
-|---------|-----------|------------|-----------|----------|
-| **MetalLB** | metallb/metallb | metallb-system | `metallb-config.yaml` | L2 모드, IP 풀 `192.168.65.200-250` |
-| **Local Path** | containeroo/local-path-provisioner | local-path-storage | `local-path.yaml` | 기본 SC, Delete 정책, WaitForFirstConsumer |
-| **Istio** | istio/base + istiod + gateway | istio-system, istio-ingress | `istio-values.yaml` | mTLS 전역, auto-inject, LB 게이트웨이(80/443) |
-| **ArgoCD** | argo/argo-cd | argocd | `argocd-values.yaml` | LB 서비스, admin 비밀번호(bcrypt) |
-| **Prometheus + Grafana** | prometheus-community/kube-prometheus-stack | monitoring | `monitoring-values.yaml` | Grafana LB, retention 7d, ServiceMonitor 전체 수집 |
-| **Loki** | grafana/loki-stack | logging | `loki-values.yaml` | filesystem 백엔드, 10Gi PV(local-path), auth 비활성 |
-| **Promtail** | grafana/promtail | logging | `promtail-values.yaml` | Loki push 엔드포인트 연결 |
-| **Jaeger** | jaegertracing/jaeger | tracing | `jaeger-values.yaml` | memory 스토리지, Query LB |
-| **OTel Collector** | open-telemetry/opentelemetry-collector | tracing | `otel-values.yaml` | OTLP gRPC/HTTP 수신, Jaeger OTLP 전송, 200m/256Mi |
-| **Kiali** | kiali/kiali-server | istio-system | `kiali-values.yaml` | anonymous 인증, Prometheus/Jaeger 연동 |
-| **Vault** | hashicorp/vault | vault | `vault-values.yaml` | Dev 모드, UI 활성, LB, external-dns 어노테이션 |
+| 스크립트 | 역할 |
+|---------|------|
+| `addons/install.sh` | Cilium(3 클러스터) + ArgoCD + ESO 순차 설치 |
+| `addons/uninstall.sh` | 애드온 역순 삭제 |
+| `scripts/setup-kubeconfig.sh` | 3 클러스터 kubeconfig 일괄 등록 |
+| `scripts/cleanup.sh` | 리소스 그룹 전체 삭제 (확인 프롬프트) |
 
-### 4. DNS 매핑 (*.bocopile.io)
+### 4. 네트워크 설계
 
-| 도메인 | 서비스 |
-|-------|--------|
-| `argocd.bocopile.io` | argocd-server.argocd |
-| `grafana.bocopile.io` | kube-prometheus-stack-grafana.monitoring |
-| `jaeger.bocopile.io` | jaeger-query.tracing |
-| `kiali.bocopile.io` | kiali.istio-system |
-| `vault.bocopile.io` | vault.vault |
+| Subnet | CIDR | AKS | NSG |
+|--------|------|-----|-----|
+| `subnet-aks-mgmt` | `10.1.0.0/16` | AKS-mgmt | `nsg-aks-mgmt` (app1/app2 inbound 허용) |
+| `subnet-aks-app1` | `10.2.0.0/16` | AKS-app1 | `nsg-aks-app1` (mgmt inbound 허용) |
+| `subnet-aks-app2` | `10.3.0.0/16` | AKS-app2 | `nsg-aks-app2` (mgmt inbound 허용) |
+| `subnet-services` | `10.4.0.0/24` | - | - (관리형 서비스용) |
+
+### 5. 비용 구조 (시연 환경)
+
+| 항목 | 월 비용 | 코드 참조 |
+|-----|--------|----------|
+| AKS Control Plane (3개) | 무료 | AKS Free Tier |
+| VM: Spot 5노드 (D2s_v3) | ~$50 | `modules/aks/main.tf` (spot_max_price) |
+| Azure Disk (150GB) | ~$5 | System+Spot pool os_disk_size_gb |
+| Log Analytics | ~$5 | `modules/observability/main.tf` (daily_quota_gb=5) |
+| Key Vault | ~$1 | `modules/keyvault/main.tf` |
+| **합계** | **~$60-80** | |
 
 ## T: 톤과 스타일
 
 - 어조: 기술 문서 스타일의 간결하고 정확한 표현
-- 언어: 쿠버네티스/인프라 실무 용어 사용, 약어는 첫 등장 시 풀네임 병기 (예: CNI(Container Network Interface))
-- 형식: Mermaid 다이어그램으로 아키텍처 시각화, 비교/매핑 항목은 표(table) 사용, 코드 블록에는 언어 명시 (`hcl`, `yaml`, `bash` 등)
-- 포함할 요소: 실제 코드 경로 참조, `terraform apply` / `bash addons/install.sh` 등 실행 가능한 명령어, Helm values의 핵심 파라미터
-- 제외할 요소: 미구현 컴포넌트 언급, 클라우드 관리형 서비스 의존, Ansible/Helmfile 관련 내용
-- 기타: 로컬(Multipass) 환경 제약사항을 명시하되, 프로덕션 환경 대비 차이점을 참고사항으로 안내
+- 언어: Azure/쿠버네티스 실무 용어 사용, 약어는 첫 등장 시 풀네임 병기 (예: AKS(Azure Kubernetes Service))
+- 형식: Mermaid 다이어그램으로 아키텍처 시각화, 비교 항목은 표(table) 사용, 코드 블록에는 언어 명시 (`hcl`, `yaml`, `bash` 등)
+- 포함할 요소: 실제 코드 경로 참조, `terraform apply` / `bash install.sh` 등 실행 가능한 명령어, ADR 번호 참조
+- 제외할 요소: 미구현 컴포넌트 언급, 검증되지 않은 성능 수치, 마케팅성 표현
+- 기타: 시연 환경 기준으로 작성하되, 프로덕션 전환 경로를 참고사항으로 안내
 
 ## E: 예시 참조
 
-- **클러스터 토폴로지**:
+- **클러스터 토폴로지 (Terraform 모듈 매핑)**:
 
-| 역할 | 노드명 | VM 스펙 | 설명 |
-|-----|--------|---------|------|
-| Control Plane | k8s-master-0 | 4GB/40GB/2CPU | 초기 마스터 (kubeadm init 실행) |
-| Control Plane | k8s-master-1 | 4GB/40GB/2CPU | CP 조인 |
-| Control Plane | k8s-master-2 | 4GB/40GB/2CPU | CP 조인 |
-| Worker | k8s-worker-0 | 4GB/50GB/2CPU | 워크로드 실행 |
-| Worker | k8s-worker-1 | 4GB/50GB/2CPU | 워크로드 실행 |
-| Worker | k8s-worker-2 | 4GB/50GB/2CPU | 워크로드 실행 |
+| 클러스터 | Terraform 모듈 호출 | Subnet | Spot 노드 수 | Tier |
+|---------|-------------------|--------|------------|------|
+| AKS-mgmt | `module "aks_mgmt"` | `10.1.0.0/16` | 1 | Tier 1 (플랫폼) |
+| AKS-app1 | `module "aks_app1"` | `10.2.0.0/16` | 2 | Tier 2 (워크로드) |
+| AKS-app2 | `module "aks_app2"` | `10.3.0.0/16` | 2 | Tier 2 (워크로드) |
 
-- **네트워크 할당**:
+- **ADR ↔ 코드 매핑**:
 
-| 항목 | 값 | 설정 위치 |
-|-----|-----|----------|
-| Pod CIDR | `10.244.0.0/16` | `shell/cluster-init.sh` (kubeadm init --pod-network-cidr) |
-| CNI | Flannel | `shell/cluster-init.sh` (kube-flannel.yml) |
-| MetalLB IP 풀 | `192.168.65.200-250` (51개) | `addons/values/metallb/metallb-config.yaml` |
-| MetalLB 모드 | L2Advertisement | `addons/values/metallb/metallb-config.yaml` |
-| Istio Gateway | HTTP(80→8080), HTTPS(443→8443) | `addons/values/istio/istio-values.yaml` |
-
-- **관찰성 3-Pillar 매핑**:
-
-| Pillar | 수집 | 저장 | 시각화 | 코드 참조 |
-|--------|------|------|--------|----------|
-| **메트릭** | Prometheus (kube-prometheus-stack) | 로컬 (7일 retention) | Grafana | `monitoring-values.yaml` |
-| **로그** | Promtail → Loki push API | Loki filesystem (10Gi PV) | Grafana | `loki-values.yaml`, `promtail-values.yaml` |
-| **트레이스** | OTel Collector (OTLP gRPC/HTTP) | Jaeger (memory) | Jaeger UI + Kiali | `otel-values.yaml`, `jaeger-values.yaml` |
-
-- **리소스 예산 (VM 합계)**:
-
-| 리소스 | CP (3노드) | Worker (3노드) | 합계 |
-|--------|-----------|---------------|------|
-| RAM | 12GB | 12GB | **24GB** |
-| Disk | 120GB | 150GB | **270GB** |
-| CPU | 6 vCPU | 6 vCPU | **12 vCPU** |
+| ADR | 결정 | 코드 위치 | 핵심 설정 |
+|-----|------|----------|----------|
+| ADR-A01 | Spot VM Tier 배치 | `modules/aks/main.tf` | `priority = "Spot"`, `eviction_policy = "Delete"` |
+| ADR-A02 | Cilium BYO CNI | `modules/aks/main.tf` | `network_plugin = "none"` |
+| ADR-A03 | Key Vault + Workload Identity | `modules/keyvault/main.tf` | `federated_identity_credential`, `role_assignment` |
+| ADR-A04 | Public API + NSG | `modules/vnet/main.tf` | NSG security_rule 정의 |
 
 - **실행 명령어 요약**:
 
 ```bash
-# 전체 인프라 생성 (VM + 클러스터)
-terraform init && terraform apply -auto-approve
+# 전체 인프라 생성
+cd azure
+terraform init && terraform apply
 
 # 플랫폼 애드온 설치
-cd addons && bash install.sh
+bash addons/install.sh
 
-# 설치 검증
-bash verify.sh
-
-# 전체 애드온 삭제
-bash uninstall.sh
+# kubeconfig 설정
+bash scripts/setup-kubeconfig.sh
 
 # 전체 인프라 삭제
-terraform destroy -auto-approve
-# 또는 수동: bash shell/delete-vm.sh
+terraform destroy
+# 또는 빠른 삭제: bash scripts/cleanup.sh
 ```
+
+- **장애 영향 매트릭스**:
+
+| 장애 유형 | 영향 | 완화 | 코드 참조 |
+|----------|------|------|----------|
+| Spot VM 회수 | 해당 노드 Pod 재스케줄링 | PDB + 다중 레플리카 | `modules/aks/main.tf` (node_taints) |
+| AKS Control Plane 장애 | API Server 불가 | Azure 자동 복구 (SLA 99.5%) | - |
+| Key Vault 장애 | 새 시크릿 조회 불가 | ESO 캐시 유지 (SLA 99.99%) | `modules/keyvault/main.tf` |
 
 ## R: 자료 참고
 
-- **아키텍처 문서**: [ARCHITECTURE.md](ARCHITECTURE.md) - 클러스터 토폴로지, 네트워크, 보안, 관찰성 전체 설계
-- **IaC 소스코드**: 본 리포지토리의 `main.tf`, `shell/`, `addons/` 디렉터리
-- **기술 스택 공식 문서**:
-  - kubeadm v1.35, containerd, Flannel CNI
-  - Istio (서비스 메시, mTLS, Gateway)
-  - MetalLB (L2 모드)
-  - kube-prometheus-stack (Prometheus + Grafana)
-  - Loki + Promtail (로그 수집/집계)
-  - Jaeger + OpenTelemetry Collector (분산 트레이싱)
-  - Kiali (서비스 메시 시각화)
-  - ArgoCD (GitOps)
-  - HashiCorp Vault (시크릿 관리)
-  - Local Path Provisioner (동적 스토리지)
+- **아키텍처 문서**: [ARCHITECTURE.md](ARCHITECTURE.md) - 클러스터 토폴로지, 네트워크, 보안, 관찰성, 비용 전략 전체 설계
+- **IaC 소스코드**: `azure/` 디렉터리의 Terraform 모듈 + addons/ + scripts/
+- **Azure 공식 문서**: AKS, Key Vault, Cilium BYO CNI, Workload Identity, Azure Monitor Container Insights
 - **코드-문서 매핑 계약**:
-  - C1: 모든 VM 스펙은 `main.tf`의 `multipass launch` 명령에서 도출
-  - C2: 모든 네트워크 CIDR은 `cluster-init.sh`의 kubeadm 파라미터에서 도출
-  - C3: 모든 Helm 설정은 `addons/values/` 디렉터리의 YAML 파일에서 도출
-  - C4: 설치 순서는 `addons/install.sh`의 실행 순서를 따름
-  - C5: 검증 항목은 `addons/verify.sh`의 ADDONS 배열과 일치
+    - C1: AKS 클러스터 스펙은 `modules/aks/main.tf`의 리소스 정의에서 도출
+    - C2: 네트워크 CIDR은 `modules/vnet/main.tf`의 `address_prefixes`에서 도출
+    - C3: 비용 관련 설정은 `variables.tf`의 `spot_max_price`, `log_analytics_daily_quota_gb`에서 도출
+    - C4: 보안 설정은 `modules/keyvault/main.tf`의 Workload Identity + Role Assignment에서 도출
+    - C5: 애드온 설치 순서는 `addons/install.sh`의 실행 순서를 따름
