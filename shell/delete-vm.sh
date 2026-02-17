@@ -1,1 +1,2 @@
+#!/bin/bash
 multipass list --format json | jq -r '.list[].name' | xargs -n1 multipass delete --purge

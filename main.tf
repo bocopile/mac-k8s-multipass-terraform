@@ -9,7 +9,7 @@ resource "null_resource" "masters" {
 
 resource "null_resource" "workers" {
   depends_on = [null_resource.masters]
-  count = var.workers
+  count      = var.workers
 
   provisioner "local-exec" {
     command = "multipass launch ${var.multipass_image} --name k8s-worker-${count.index} --mem 4G --disk 50G --cpus 2 --cloud-init init/k8s.yaml"

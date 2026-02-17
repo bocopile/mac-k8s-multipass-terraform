@@ -20,7 +20,6 @@ if hostname | grep -q "k8s-master-0"; then
   chmod +x /home/ubuntu/join.sh
 
 
-  kubeadm token create --print-join-command --certificate-key $(kubeadm init phase upload-certs --upload-certs | tail -n1) > /home/ubuntu/join-controlplane.sh
   CERT_KEY=$(kubeadm init phase upload-certs --upload-certs | tail -n1)
   JOIN_CP_CMD=$(kubeadm token create --print-join-command --certificate-key $CERT_KEY)
   echo "sudo $JOIN_CP_CMD" > /home/ubuntu/join-controlplane.sh
