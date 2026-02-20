@@ -7,18 +7,16 @@ set -euo pipefail
 FALCO_VERSION="${1:-4.16.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 # Helm repo 추가
-helm repo add falcosecurity https://falcosecurity.github.io/charts 2>/dev/null || true
-helm repo update falcosecurity
+add_helm_repo "falcosecurity" "${HELM_REPO_FALCO}"
 
 CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
 
@@ -29,17 +27,14 @@ for CLUSTER in ${CLUSTERS}; do
     continue
   fi
 
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-  KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${CONTEXT}"
-  KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${CONTEXT}"
-
   echo "=== Installing Falco ${FALCO_VERSION} on ${CLUSTER} ==="
 
+  ensure_namespace "${NAMESPACE_SECURITY}" "${CLUSTER}"
+
   # Falco 설치 (eBPF 드라이버 - 커널 모듈 대신 eBPF 사용)
-  helm upgrade --install falco falcosecurity/falco \
+  $(get_helm_cmd "${CLUSTER}") upgrade --install falco falcosecurity/falco \
     --version "${FALCO_VERSION}" \
-    --namespace security --create-namespace \
-    ${KC} \
+    --namespace "${NAMESPACE_SECURITY}" \
     --set driver.kind=ebpf \
     --set tty=true \
     --set falco.grpc.enabled=true \
@@ -49,10 +44,10 @@ for CLUSTER in ${CLUSTERS}; do
     --set falcosidekick.enabled=true \
     --set falcosidekick.config.prometheus.enabled=true \
     --set serviceMonitor.enabled=true \
-    --wait --timeout 300s
+    --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   # DaemonSet 준비 대기
-  kubectl ${KC_KUBECTL} -n security rollout status daemonset/falco --timeout=180s || true
+  $(get_kubectl_cmd "${CLUSTER}") -n "${NAMESPACE_SECURITY}" rollout status daemonset/falco --timeout="${TIMEOUT_POD_READY}s" || true
 
   echo "=== Falco installed on ${CLUSTER} ==="
 done

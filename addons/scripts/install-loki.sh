@@ -8,26 +8,18 @@ set -euo pipefail
 # - ADR-006 관찰성 아키텍처 참조
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 
-# mgmt 클러스터 컨텍스트
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC_MGMT="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
-KC_MGMT_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 # =============================================================================
 # Helm Repo 등록
 # =============================================================================
-echo "=== Adding Grafana Helm repository ==="
-helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
-helm repo update
+add_helm_repo "grafana" "${HELM_REPO_GRAFANA}"
 
 # =============================================================================
 # 1. Loki 설치 (mgmt 클러스터)
@@ -35,11 +27,10 @@ helm repo update
 echo ""
 echo "=== [1/2] Installing Loki on mgmt cluster ==="
 
-kubectl ${KC_MGMT_KUBECTL} create namespace observability 2>/dev/null || true
+ensure_namespace "${NAMESPACE_OBSERVABILITY}" "mgmt"
 
-helm upgrade --install loki grafana/loki \
-  --namespace observability \
-  ${KC_MGMT} \
+$(get_helm_cmd mgmt) upgrade --install loki grafana/loki \
+  --namespace "${NAMESPACE_OBSERVABILITY}" \
   --set deploymentMode=SingleBinary \
   --set singleBinary.replicas=1 \
   --set singleBinary.resources.requests.memory=256Mi \
@@ -70,7 +61,7 @@ echo "Loki installed on mgmt cluster."
 
 # Loki LoadBalancer 서비스 생성 (app 클러스터에서 접근용)
 echo "Creating Loki LoadBalancer service..."
-kubectl ${KC_MGMT_KUBECTL} -n observability apply -f - <<'EOF'
+$(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" apply -f - <<'EOF'
 apiVersion: v1
 kind: Service
 metadata:
@@ -92,7 +83,7 @@ EOF
 echo "Waiting for Loki LoadBalancer IP..."
 LOKI_LB_IP=""
 for i in $(seq 1 30); do
-  LOKI_LB_IP=$(kubectl ${KC_MGMT_KUBECTL} -n observability \
+  LOKI_LB_IP=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" \
     get svc loki-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
   if [[ -n "${LOKI_LB_IP}" ]]; then
     echo "${LOKI_LB_IP}" > "${GENERATED_DIR}/loki-lb-ip"
@@ -114,10 +105,10 @@ fi
 echo ""
 echo "=== Adding Loki datasource to Grafana ==="
 
-GRAFANA_EXISTS=$(kubectl ${KC_MGMT_KUBECTL} -n monitoring get svc kube-prometheus-stack-grafana &>/dev/null && echo "true" || echo "false")
+GRAFANA_EXISTS=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_MONITORING}" get svc kube-prometheus-stack-grafana &>/dev/null && echo "true" || echo "false")
 
 if [[ "${GRAFANA_EXISTS}" == "true" ]]; then
-  kubectl ${KC_MGMT_KUBECTL} -n monitoring apply -f - <<EOF
+  $(get_kubectl_cmd mgmt) -n "${NAMESPACE_MONITORING}" apply -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -149,10 +140,6 @@ echo "=== [2/2] Installing Promtail on app clusters ==="
 CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
 
 for CLUSTER in ${CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-  KC_APP="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${CONTEXT}"
-  KC_APP_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${CONTEXT}"
-
   if [[ "${CLUSTER}" == "mgmt" ]]; then
     # mgmt는 Loki와 같은 클러스터이므로 in-cluster 주소 사용
     LOKI_URL="http://loki.observability.svc.cluster.local:3100"
@@ -164,18 +151,10 @@ for CLUSTER in ${CLUSTERS}; do
   echo ""
   echo "--- Installing Promtail on ${CLUSTER} (loki: ${LOKI_URL}) ---"
 
-  kubectl ${KC_APP_KUBECTL} create namespace observability 2>/dev/null || true
+  ensure_namespace_privileged "${NAMESPACE_OBSERVABILITY}" "${CLUSTER}"
 
-  # PSA 예외 (Promtail은 호스트 로그 접근에 privileged 필요)
-  kubectl ${KC_APP_KUBECTL} label namespace observability \
-    pod-security.kubernetes.io/enforce=privileged \
-    pod-security.kubernetes.io/audit=privileged \
-    pod-security.kubernetes.io/warn=privileged \
-    --overwrite
-
-  helm upgrade --install promtail grafana/promtail \
-    --namespace observability \
-    ${KC_APP} \
+  $(get_helm_cmd "${CLUSTER}") upgrade --install promtail grafana/promtail \
+    --namespace "${NAMESPACE_OBSERVABILITY}" \
     --set config.clients[0].url="${LOKI_URL}/loki/api/v1/push" \
     --set config.snippets.extraRelabelConfigs[0].target_label=cluster \
     --set config.snippets.extraRelabelConfigs[0].replacement="${CLUSTER}" \
@@ -201,7 +180,7 @@ echo "  [OK] Promtail     - all clusters:observability namespace (DaemonSet)"
 echo "================================================================="
 echo ""
 echo "Query logs via Grafana:"
-echo "  kubectl ${KC_MGMT_KUBECTL} -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80"
+echo "  $(get_kubectl_cmd mgmt) -n ${NAMESPACE_MONITORING} port-forward svc/kube-prometheus-stack-grafana 3000:80"
 echo "  → Explore → Loki datasource → {cluster=\"app1\"}"
 echo ""
 echo "Estimated RAM: ~400MB (Loki on mgmt) + ~100MB per cluster (Promtail)"

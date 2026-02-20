@@ -10,14 +10,13 @@ set -euo pipefail
 ISTIO_VERSION="${1:-1.26.2}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 # istioctl 설치 확인
 if ! command -v istioctl &>/dev/null; then
@@ -207,17 +206,17 @@ EOF
 
   # Pod 상태 확인 (타임아웃 증가)
   echo "Waiting for istiod deployment..."
-  if ! kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+  if ! $(get_kubectl_cmd "${CLUSTER}") \
     -n istio-system wait --for=condition=available --timeout=300s \
     deployment/istiod; then
     echo "ERROR: istiod deployment failed to become ready"
-    kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+    $(get_kubectl_cmd "${CLUSTER}") \
       -n istio-system get pods
     exit 1
   fi
 
   echo "Waiting for ingress gateway deployment..."
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+  $(get_kubectl_cmd "${CLUSTER}") \
     -n istio-system wait --for=condition=available --timeout=300s \
     deployment/istio-ingressgateway || echo "WARNING: Ingress gateway not ready"
 
@@ -226,7 +225,7 @@ EOF
   # =============================================================================
   echo "[4/4] Creating Prometheus ServiceMonitor for Istio..."
 
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" apply -f - <<EOF
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -269,15 +268,14 @@ echo "================================================================="
 echo "  Istio Installation Summary"
 echo "================================================================="
 for CLUSTER in ${ISTIO_CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
   echo ""
   echo "Cluster: ${CLUSTER}"
   echo "  Istiod:"
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+  $(get_kubectl_cmd "${CLUSTER}") \
     -n istio-system get deploy istiod -o wide
   echo ""
   echo "  Ingress Gateway:"
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+  $(get_kubectl_cmd "${CLUSTER}") \
     -n istio-system get svc istio-ingressgateway -o wide
 done
 echo "================================================================="

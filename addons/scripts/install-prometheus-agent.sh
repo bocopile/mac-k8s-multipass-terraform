@@ -6,18 +6,16 @@ set -euo pipefail
 # ADR-006: 에이전트 모드 아키텍처
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 # Helm repo 추가
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
-helm repo update prometheus-community
+add_helm_repo "prometheus-community" "${HELM_REPO_PROMETHEUS_COMMUNITY}"
 
 # Thanos Receive IP 확인
 THANOS_IP_FILE="${GENERATED_DIR}/thanos-receive-ip"
@@ -29,9 +27,8 @@ if [[ -f "${THANOS_IP_FILE}" ]]; then
 else
   # Fallback: mgmt 클러스터에서 직접 조회
   echo "Thanos IP file not found. Querying mgmt cluster..."
-  MGMT_CONTEXT="kubernetes-admin@mgmt"
-  THANOS_RECEIVE_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
-    -n observability get svc thanos-receive \
+  THANOS_RECEIVE_IP=$($(get_kubectl_cmd mgmt) \
+    -n "${NAMESPACE_OBSERVABILITY}" get svc thanos-receive \
     -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
 
   if [[ -n "${THANOS_RECEIVE_IP}" ]]; then
@@ -71,14 +68,12 @@ for CLUSTER in ${CLUSTERS}; do
     continue
   fi
 
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-  KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${CONTEXT}"
-
   echo "=== Installing Prometheus Agent on ${CLUSTER} ==="
 
-  helm upgrade --install prometheus-agent prometheus-community/kube-prometheus-stack \
-    --namespace monitoring --create-namespace \
-    ${KC} \
+  ensure_namespace "${NAMESPACE_MONITORING}" "${CLUSTER}"
+
+  $(get_helm_cmd "${CLUSTER}") upgrade --install prometheus-agent prometheus-community/kube-prometheus-stack \
+    --namespace "${NAMESPACE_MONITORING}" \
     --set prometheus.prometheusSpec.mode=Agent \
     --set "prometheus.prometheusSpec.remoteWrite[0].url=${REMOTE_WRITE_URL}" \
     --set "prometheus.prometheusSpec.remoteWrite[0].writeRelabelConfigs[0].sourceLabels={__name__}" \
@@ -94,7 +89,7 @@ for CLUSTER in ${CLUSTERS}; do
     --set nodeExporter.enabled=true \
     --set kubeStateMetrics.enabled=true \
     --set prometheus.serviceMonitor.selfMonitor=true \
-    --wait --timeout 180s
+    --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   echo "=== Prometheus Agent installed on ${CLUSTER} ==="
   echo "    Mode: Agent (WAL buffer ~2h)"

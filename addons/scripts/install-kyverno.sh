@@ -7,18 +7,16 @@ set -euo pipefail
 KYVERNO_VERSION="${1:-3.3.4}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 # Helm repo 추가
-helm repo add kyverno https://kyverno.github.io/kyverno 2>/dev/null || true
-helm repo update kyverno
+add_helm_repo "kyverno" "${HELM_REPO_KYVERNO}"
 
 CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
 
@@ -29,31 +27,28 @@ for CLUSTER in ${CLUSTERS}; do
     continue
   fi
 
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-  KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${CONTEXT}"
-  KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${CONTEXT}"
-
   echo "=== Installing Kyverno ${KYVERNO_VERSION} on ${CLUSTER} ==="
 
-  helm upgrade --install kyverno kyverno/kyverno \
+  ensure_namespace "${NAMESPACE_SECURITY}" "${CLUSTER}"
+
+  $(get_helm_cmd "${CLUSTER}") upgrade --install kyverno kyverno/kyverno \
     --version "${KYVERNO_VERSION}" \
-    --namespace security --create-namespace \
-    ${KC} \
+    --namespace "${NAMESPACE_SECURITY}" \
     --set admissionController.replicas=1 \
     --set backgroundController.replicas=1 \
     --set cleanupController.replicas=1 \
     --set reportsController.replicas=1 \
-    --wait --timeout 180s
+    --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   echo "Waiting for Kyverno admission controller..."
-  kubectl ${KC_KUBECTL} -n security wait deploy/kyverno-admission-controller \
-    --for=condition=available --timeout=120s
+  $(get_kubectl_cmd "${CLUSTER}") -n "${NAMESPACE_SECURITY}" wait deploy/kyverno-admission-controller \
+    --for=condition=available --timeout="${TIMEOUT_POD_READY}s"
 
   # 기본 정책 적용 (§7.3 정책 범위)
   echo "Applying Kyverno policies on ${CLUSTER}..."
 
   # 1. 이미지 레지스트리 제한 (Harbor만 허용)
-  kubectl ${KC_KUBECTL} apply -f - <<'EOF'
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<'EOF'
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -98,7 +93,7 @@ spec:
 EOF
 
   # 2. 리소스 제한 필수
-  kubectl ${KC_KUBECTL} apply -f - <<'EOF'
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<'EOF'
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -143,7 +138,7 @@ spec:
 EOF
 
   # 3. 권한 있는 컨테이너 금지
-  kubectl ${KC_KUBECTL} apply -f - <<'EOF'
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<'EOF'
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -184,7 +179,7 @@ spec:
 EOF
 
   # 4. 라벨 필수 (audit 모드)
-  kubectl ${KC_KUBECTL} apply -f - <<'EOF'
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<'EOF'
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
