@@ -5,22 +5,19 @@ set -euo pipefail
 CILIUM_VERSION="${1:?Usage: install-cilium.sh <cilium-version>}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+
+# Setup
+setup_common_vars
 
 # Cilium CLI 설치 확인
 if ! command -v cilium &>/dev/null; then
-  echo "Installing Cilium CLI..."
+  log_info "Installing Cilium CLI..."
 
   if ! CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt); then
-    echo "ERROR: Failed to fetch Cilium CLI version"
-    exit 1
+    error_exit "Failed to fetch Cilium CLI version"
   fi
 
   CLI_ARCH="amd64"
@@ -30,14 +27,12 @@ if ! command -v cilium &>/dev/null; then
 
   if ! curl -L --fail --remote-name-all \
     "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-darwin-${CLI_ARCH}.tar.gz{,.sha256sum}"; then
-    echo "ERROR: Failed to download Cilium CLI"
-    exit 1
+    error_exit "Failed to download Cilium CLI"
   fi
 
   if ! shasum -a 256 --check "cilium-darwin-${CLI_ARCH}.tar.gz.sha256sum"; then
-    echo "ERROR: Cilium CLI checksum verification failed"
     rm -f "cilium-darwin-${CLI_ARCH}.tar.gz" "cilium-darwin-${CLI_ARCH}.tar.gz.sha256sum"
-    exit 1
+    error_exit "Cilium CLI checksum verification failed"
   fi
 
   sudo tar xzvfC "cilium-darwin-${CLI_ARCH}.tar.gz" /usr/local/bin
@@ -52,7 +47,7 @@ for CLUSTER in ${CLUSTERS}; do
   POD_CIDR=$(jq -r ".\"${CLUSTER}\".pod_cidr" "${CLUSTERS_JSON}")
   CONTEXT="kubernetes-admin@${CLUSTER}"
 
-  echo "=== Installing Cilium on ${CLUSTER} (cluster-id=${CLUSTER_ID}, pod-cidr=${POD_CIDR}) ==="
+  log_info "Installing Cilium on ${CLUSTER} (cluster-id=${CLUSTER_ID}, pod-cidr=${POD_CIDR})"
 
   cilium install \
     --version "${CILIUM_VERSION}" \

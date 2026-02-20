@@ -9,72 +9,55 @@ set -euo pipefail
 # - ADR-006 참조
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 
-# mgmt 클러스터 컨텍스트
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
-KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 # =============================================================================
 # Helm Repo 등록
 # =============================================================================
-echo "=== Adding Prometheus Community Helm repository ==="
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
-helm repo update
+add_helm_repo "prometheus-community" "${HELM_REPO_PROMETHEUS}"
 
 # =============================================================================
-# monitoring 네임스페이스 생성
+# monitoring 네임스페이스 생성 (Privileged PSA)
 # =============================================================================
-kubectl ${KC_KUBECTL} create namespace monitoring 2>/dev/null || true
-
-# PSA 예외 (node-exporter 등 privileged 필요)
-kubectl ${KC_KUBECTL} label namespace monitoring \
-  pod-security.kubernetes.io/enforce=privileged \
-  pod-security.kubernetes.io/audit=privileged \
-  pod-security.kubernetes.io/warn=privileged \
-  --overwrite
+ensure_namespace_privileged "${NAMESPACE_MONITORING}" "mgmt"
 
 # =============================================================================
 # kube-prometheus-stack 설치
 # =============================================================================
-echo ""
-echo "=== Installing kube-prometheus-stack on mgmt cluster ==="
+log_info "Installing kube-prometheus-stack on mgmt cluster"
 
 # Thanos Receive IP 확인 (이미 설치된 경우)
 THANOS_QUERY_SVC="http://thanos-query.thanos.svc.cluster.local:9090"
 
-helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  ${KC} \
+$(get_helm_cmd mgmt) upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace "${NAMESPACE_MONITORING}" \
   --set prometheus.prometheusSpec.retention=7d \
   --set prometheus.prometheusSpec.retentionSize=5GB \
   --set prometheus.prometheusSpec.resources.requests.memory=512Mi \
   --set prometheus.prometheusSpec.resources.requests.cpu=200m \
   --set prometheus.prometheusSpec.resources.limits.memory=1Gi \
   --set prometheus.prometheusSpec.resources.limits.cpu=500m \
-  --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName=local-path-retain \
-  --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=10Gi \
+  --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName="${STORAGE_CLASS_RETAIN}" \
+  --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage="${STORAGE_SIZE_MEDIUM}" \
   --set prometheus.prometheusSpec.externalLabels.cluster=mgmt \
   --set prometheus.prometheusSpec.enableRemoteWriteReceiver=true \
   --set prometheus.service.type=ClusterIP \
   --set grafana.enabled=true \
   --set grafana.adminPassword=admin \
   --set grafana.service.type=ClusterIP \
-  --set grafana.resources.requests.memory=128Mi \
-  --set grafana.resources.requests.cpu=100m \
-  --set grafana.resources.limits.memory=256Mi \
-  --set grafana.resources.limits.cpu=200m \
+  --set grafana.resources.requests.memory="${RESOURCES_MEDIUM_REQUESTS_MEMORY}" \
+  --set grafana.resources.requests.cpu="${RESOURCES_MEDIUM_REQUESTS_CPU}" \
+  --set grafana.resources.limits.memory="${RESOURCES_MEDIUM_LIMITS_MEMORY}" \
+  --set grafana.resources.limits.cpu="${RESOURCES_SMALL_LIMITS_CPU}" \
   --set grafana.persistence.enabled=true \
-  --set grafana.persistence.storageClassName=local-path-retain \
-  --set grafana.persistence.size=5Gi \
+  --set grafana.persistence.storageClassName="${STORAGE_CLASS_RETAIN}" \
+  --set grafana.persistence.size="${STORAGE_SIZE_SMALL}" \
   --set grafana.sidecar.dashboards.enabled=true \
   --set grafana.sidecar.datasources.enabled=true \
   --set alertmanager.enabled=true \
