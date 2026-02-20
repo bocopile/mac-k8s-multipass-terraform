@@ -1,0 +1,275 @@
+# VirtualServices for *.bocopile.io domain routing
+# Apply to mgmt cluster
+---
+# Grafana
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: grafana-vs
+  namespace: monitoring
+spec:
+  hosts:
+  - "grafana.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: kube-prometheus-stack-grafana
+        port:
+          number: 80
+---
+# Prometheus
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: prometheus-vs
+  namespace: monitoring
+spec:
+  hosts:
+  - "prometheus.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: kube-prometheus-stack-prometheus
+        port:
+          number: 9090
+---
+# AlertManager
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: alertmanager-vs
+  namespace: monitoring
+spec:
+  hosts:
+  - "alertmanager.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: kube-prometheus-stack-alertmanager
+        port:
+          number: 9093
+---
+# ArgoCD (HTTPS passthrough)
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: argocd-vs
+  namespace: argocd
+spec:
+  hosts:
+  - "argocd.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: argocd-server
+        port:
+          number: 80
+---
+# Kiali
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: kiali-vs
+  namespace: istio-system
+spec:
+  hosts:
+  - "kiali.bocopile.io"
+  gateways:
+  - bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: kiali
+        port:
+          number: 20001
+---
+# Vault
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: vault-vs
+  namespace: vault
+spec:
+  hosts:
+  - "vault.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: vault
+        port:
+          number: 8200
+---
+# MinIO Console
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: minio-console-vs
+  namespace: backup
+spec:
+  hosts:
+  - "minio.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: minio
+        port:
+          number: 9001
+---
+# MinIO API
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: minio-api-vs
+  namespace: backup
+spec:
+  hosts:
+  - "s3.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: minio
+        port:
+          number: 9000
+---
+# Tempo
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: tempo-vs
+  namespace: observability
+spec:
+  hosts:
+  - "tempo.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: tempo
+        port:
+          number: 3100
+---
+# Thanos Query
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: thanos-vs
+  namespace: observability
+spec:
+  hosts:
+  - "thanos.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: thanos-query
+        port:
+          number: 9090
+---
+# OpenCost
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: opencost-vs
+  namespace: opencost
+spec:
+  hosts:
+  - "opencost.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: opencost
+        port:
+          number: 9090
+---
+# Goldilocks
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: goldilocks-vs
+  namespace: goldilocks
+spec:
+  hosts:
+  - "goldilocks.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: goldilocks-dashboard
+        port:
+          number: 80
+---
+# Chaos Mesh
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: chaos-vs
+  namespace: chaos-mesh
+spec:
+  hosts:
+  - "chaos.bocopile.io"
+  gateways:
+  - istio-system/bocopile-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: chaos-dashboard
+        port:
+          number: 2333

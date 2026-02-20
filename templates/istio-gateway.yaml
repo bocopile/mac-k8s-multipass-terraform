@@ -1,0 +1,149 @@
+# =============================================================================
+# Istio Gateway with cert-manager + Vault PKI Integration
+# =============================================================================
+
+---
+# Certificate 리소스: cert-manager가 Vault에서 인증서 발급
+# IMPORTANT: istio-system 네임스페이스에 생성해야 함
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-gateway-cert
+  namespace: istio-system
+spec:
+  # Secret 이름 (Gateway의 credentialName과 일치)
+  secretName: istio-gateway-cert
+
+  # 도메인 설정 (실제 사용할 도메인으로 변경)
+  commonName: "gateway.local"
+  dnsNames:
+  - "*.local"
+  - "*.example.com"
+  - "gateway.local"
+  - "grafana.local"
+  - "argocd.local"
+
+  # 인증서 유효기간 및 갱신 설정
+  duration: 2160h        # 90일
+  renewBefore: 720h      # 30일 전 갱신 (또는 renewBeforePercentage: 33)
+
+  # Private Key 설정
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always  # cert-manager >= v1.18.0 기본값
+
+  # Issuer 참조 (Vault ClusterIssuer)
+  issuerRef:
+    name: vault-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+---
+# Gateway 리소스: Istio Ingress Gateway 설정
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: istio-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+
+  servers:
+  # HTTPS 서버 (cert-manager 인증서 사용)
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      # cert-manager Certificate의 secretName과 일치
+      credentialName: istio-gateway-cert
+    hosts:
+    - "*.local"
+    - "*.example.com"
+
+  # HTTP 서버 (HTTPS로 리다이렉트)
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    # TLS 리다이렉트 설정
+    tls:
+      httpsRedirect: true
+    hosts:
+    - "*.local"
+    - "*.example.com"
+
+---
+# VirtualService 예제: Grafana (mgmt 클러스터)
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  hosts:
+  - "grafana.local"
+  gateways:
+  - istio-system/istio-gateway
+  http:
+  - match:
+    - uri:
+        prefix: "/"
+    route:
+    - destination:
+        host: kube-prometheus-stack-grafana.monitoring.svc.cluster.local
+        port:
+          number: 80
+
+---
+# VirtualService 예제: ArgoCD (mgmt 클러스터)
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  hosts:
+  - "argocd.local"
+  gateways:
+  - istio-system/istio-gateway
+  http:
+  - match:
+    - uri:
+        prefix: "/"
+    route:
+    - destination:
+        host: argocd-server.argocd.svc.cluster.local
+        port:
+          number: 443
+
+---
+# AuthorizationPolicy 예제: 기본 Deny All (보안 강화)
+# NOTE: 필요한 네임스페이스에만 적용
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: default
+spec:
+  action: DENY
+  rules:
+  - from:
+    - source:
+        notNamespaces: ["istio-system", "kube-system"]
+
+---
+# PeerAuthentication: mTLS 모드 설정
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    # STRICT: 모든 통신 mTLS 강제
+    # PERMISSIVE: mTLS와 plain text 모두 허용 (레거시 호환)
+    mode: PERMISSIVE

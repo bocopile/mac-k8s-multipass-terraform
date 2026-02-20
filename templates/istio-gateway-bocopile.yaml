@@ -1,0 +1,26 @@
+# Istio Gateway for *.bocopile.io domain
+# Apply to mgmt cluster
+---
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: bocopile-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*.bocopile.io"
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: PASSTHROUGH
+    hosts:
+    - "*.bocopile.io"
