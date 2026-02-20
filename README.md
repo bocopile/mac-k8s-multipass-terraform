@@ -1,9 +1,10 @@
 # Kubernetes Multi-Cluster Platform on macOS (Multipass + OpenTofu)
 
-> **버전**: v4.0.0
+> **버전**: v5.2.0
 > **Kubernetes**: v1.35 (Timbernetes)
 > **IaC**: OpenTofu 1.11 (Terraform 호환)
 > **업데이트**: 2026-02-20
+> **품질**: 33개 스크립트 리팩토링 완료 (-286 lines, 33% 감소)
 
 macOS(Apple Silicon) 환경에서 **OpenTofu와 Shell Script**를 사용하여 프로덕션급 **Kubernetes 멀티클러스터 환경**을 자동으로 구축하는 IaC 프로젝트입니다.
 
@@ -12,9 +13,10 @@ macOS(Apple Silicon) 환경에서 **OpenTofu와 Shell Script**를 사용하여 �
 - 🚀 **완전 자동화**: OpenTofu로 인프라부터 플랫폼 서비스까지 원클릭 배포
 - 🔒 **엔터프라이즈급 보안**: Vault + cert-manager PKI, Kyverno + Falco + Tetragon 다층 방어
 - 📊 **통합 관찰성**: Prometheus + Thanos + Loki + Grafana 중앙 집중식 모니터링
-- 🌐 **Service Mesh 지원**: Cilium Cluster Mesh + Istio (예정)
+- 🌐 **Service Mesh 지원**: Cilium Cluster Mesh + Istio
 - ♻️ **GitOps 기반**: ArgoCD 선언적 배포
 - 💾 **백업/복구**: Velero + MinIO 자동 백업
+- ✨ **코드 품질**: DRY 원칙 적용, 공통 라이브러리 14개 함수, 50+ 상수
 
 ---
 
@@ -174,9 +176,17 @@ cilium clustermesh status --context kubernetes-admin@mgmt
 ├── versions.tf                # OpenTofu/Terraform 버전 제약
 ├── templates/                 # cloud-init 템플릿
 │   └── cloud-init-k8s.yaml.tpl
-├── scripts/                   # 설치 스크립트 (28개)
+├── scripts/                   # 인프라 스크립트
+│   ├── lib/                   # 공통 라이브러리
+│   │   ├── common.sh          # 14개 공통 함수
+│   │   └── constants.sh       # 50+ 상수 정의
 │   ├── cluster-init.sh        # Kubernetes 초기화
 │   ├── cluster-join.sh        # Worker 조인
+│   ├── verify-clusters.sh     # 클러스터 검증
+│   ├── show-loadbalancer-ips.sh  # LoadBalancer IP 조회
+│   ├── update-hosts-mac.sh    # /etc/hosts 자동 업데이트
+│   └── ...
+├── addons/scripts/            # Addon 설치 스크립트 (27개)
 │   ├── install-cilium.sh      # Cilium CNI + Cluster Mesh
 │   ├── install-metallb.sh     # LoadBalancer
 │   ├── install-cert-manager.sh
@@ -430,17 +440,24 @@ multipass delete --all --purge
 
 ## 🔮 로드맵
 
+### v5.2.0 (완료) - 2026-02-20
+- [x] **DRY 원칙 적용** - 33개 스크립트 전체 리팩토링
+- [x] **공통 라이브러리** - scripts/lib/common.sh (14개 함수), constants.sh (50+ 상수)
+- [x] **코드 품질 개선** - 868 lines → 606 lines (-286 lines, 33% 감소)
+- [x] **유지보수성 향상** - 중복 코드 제거, 일관된 패턴 적용
+
 ### v4.1 (완료)
 - [x] **Istio Service Mesh 추가** (v1.29.0, Kubernetes 1.35 호환)
 - [x] **Vault PKI Phase 2 전환** (Istio Gateway 인증서 자동 관리)
 - [x] **OpenTofu 마이그레이션** (Terraform → OpenTofu, MPL 2.0 라이선스)
 - [x] **관찰성 스택 완성** (Tempo + OTel Collector + Kiali)
-- [x] **코드 리팩토링** (for_each 적용, 517줄 → 462줄)
+- [x] **Terraform 코드 리팩토링** (for_each 적용, 517줄 → 462줄)
 
-### v4.2 (계획)
+### v5.3 (계획)
 - [ ] Horizontal Pod Autoscaler 자동 구성
 - [ ] Network Policies 자동 생성
 - [ ] Disaster Recovery 자동화
+- [ ] CI/CD 파이프라인 템플릿 추가
 
 ---
 
