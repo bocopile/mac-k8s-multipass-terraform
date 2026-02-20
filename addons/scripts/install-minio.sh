@@ -5,21 +5,14 @@ set -euo pipefail
 # mgmt 클러스터에 MinIO 설치 (Velero 백업 저장소)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-# Load credential management library
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
-
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
-KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 # Initialize and get MinIO credentials
 init_credentials
@@ -28,10 +21,9 @@ get_minio_credentials > /dev/null
 source "${CREDENTIALS_FILE}"
 
 # Helm repo 추가
-helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
-helm repo update bitnami
+add_helm_repo "bitnami" "${HELM_REPO_BITNAMI}"
 
-echo "=== Installing MinIO on mgmt cluster (Demo Environment) ==="
+log_info "Installing MinIO on mgmt cluster (Demo Environment)"
 
 # Demo Environment Configuration:
 # - Storage: 15Gi (down from 50Gi, 70% reduction)
@@ -39,40 +31,33 @@ echo "=== Installing MinIO on mgmt cluster (Demo Environment) ==="
 # - CPU: 50m-250m (down from 100m-500m, 50% reduction)
 # - Optimized for Mac M1 Max (10-core, 64GB RAM)
 
-helm upgrade --install minio bitnami/minio \
-  --namespace backup --create-namespace \
-  ${KC} \
+# Ensure namespace exists
+ensure_namespace "${NAMESPACE_BACKUP}" "mgmt"
+
+# Install MinIO
+$(get_helm_cmd mgmt) upgrade --install minio bitnami/minio \
+  --namespace "${NAMESPACE_BACKUP}" \
   --set auth.rootUser="${MINIO_ROOT_USER}" \
   --set auth.rootPassword="${MINIO_ROOT_PASSWORD}" \
   --set mode=standalone \
   --set persistence.enabled=true \
-  --set persistence.storageClass=local-path \
+  --set persistence.storageClass="${STORAGE_CLASS_DEFAULT}" \
   --set persistence.size=15Gi \
   --set service.type=LoadBalancer \
   --set service.ports.api=9000 \
   --set service.ports.console=9001 \
   --set defaultBuckets="velero-backups,thanos,loki-logs,tempo-traces" \
-  --set resources.requests.memory=128Mi \
-  --set resources.requests.cpu=50m \
-  --set resources.limits.memory=256Mi \
-  --set resources.limits.cpu=250m \
-  --wait --timeout 180s
+  --set resources.requests.memory="${RESOURCES_MEDIUM_REQUESTS_MEMORY}" \
+  --set resources.requests.cpu="${RESOURCES_SMALL_REQUESTS_CPU}" \
+  --set resources.limits.memory="${RESOURCES_MEDIUM_LIMITS_MEMORY}" \
+  --set resources.limits.cpu="${RESOURCES_SMALL_LIMITS_CPU}" \
+  --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
-echo "Waiting for MinIO..."
-kubectl ${KC_KUBECTL} -n backup wait deploy/minio \
-  --for=condition=available --timeout=120s
+# Wait for deployment
+wait_for_deployment "${NAMESPACE_BACKUP}" "minio" "${TIMEOUT_POD_READY}" "kubernetes-admin@mgmt"
 
-# MinIO LoadBalancer IP 확인
-MINIO_IP=""
-for i in $(seq 1 20); do
-  MINIO_IP=$(kubectl ${KC_KUBECTL} -n backup \
-    get svc minio -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-  if [[ -n "${MINIO_IP}" ]]; then
-    break
-  fi
-  echo "Waiting for MinIO LoadBalancer IP... (${i}/20)"
-  sleep 5
-done
+# Get LoadBalancer IP
+MINIO_IP=$(wait_for_lb_ip "${NAMESPACE_BACKUP}" "minio" 20 "kubernetes-admin@mgmt")
 
 if [[ -n "${MINIO_IP}" ]]; then
   echo "${MINIO_IP}" > "${GENERATED_DIR}/minio-ip"

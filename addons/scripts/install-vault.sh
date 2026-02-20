@@ -8,71 +8,52 @@ set -euo pipefail
 # - ADR-004 Phase 2 PKI의 기반
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-# Load credential management library
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
-
-# mgmt 클러스터 컨텍스트
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
-KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 # =============================================================================
 # Helm Repo 등록
 # =============================================================================
-echo "=== Adding HashiCorp Helm repository ==="
-helm repo add hashicorp https://helm.releases.hashicorp.com 2>/dev/null || true
-helm repo update
+add_helm_repo "hashicorp" "${HELM_REPO_HASHICORP}"
 
 # =============================================================================
-# Vault 네임스페이스 생성
+# Vault 네임스페이스 생성 (Privileged PSA)
 # =============================================================================
-kubectl ${KC_KUBECTL} create namespace vault 2>/dev/null || true
-
-# PSA 예외 설정 (Vault agent injector는 privileged 필요)
-kubectl ${KC_KUBECTL} label namespace vault \
-  pod-security.kubernetes.io/enforce=privileged \
-  pod-security.kubernetes.io/audit=privileged \
-  pod-security.kubernetes.io/warn=privileged \
-  --overwrite
+ensure_namespace_privileged "${NAMESPACE_VAULT}" "mgmt"
 
 # =============================================================================
 # Vault 설치 (Standalone, local-path-retain PVC)
 # =============================================================================
-echo ""
-echo "=== Installing Vault on mgmt cluster ==="
+log_info "Installing Vault on mgmt cluster"
 
-helm upgrade --install vault hashicorp/vault \
-  --namespace vault \
-  ${KC} \
-  --set server.dataStorage.storageClass=local-path-retain \
-  --set server.dataStorage.size=10Gi \
+$(get_helm_cmd mgmt) upgrade --install vault hashicorp/vault \
+  --namespace "${NAMESPACE_VAULT}" \
+  --set server.dataStorage.storageClass="${STORAGE_CLASS_RETAIN}" \
+  --set server.dataStorage.size="${STORAGE_SIZE_MEDIUM}" \
   --set server.standalone.enabled=true \
   --set server.ha.enabled=false \
-  --set server.resources.requests.memory=256Mi \
-  --set server.resources.requests.cpu=100m \
-  --set server.resources.limits.memory=512Mi \
-  --set server.resources.limits.cpu=500m \
+  --set server.resources.requests.memory="${RESOURCES_LARGE_REQUESTS_MEMORY}" \
+  --set server.resources.requests.cpu="${RESOURCES_MEDIUM_REQUESTS_CPU}" \
+  --set server.resources.limits.memory="${RESOURCES_LARGE_LIMITS_MEMORY}" \
+  --set server.resources.limits.cpu="${RESOURCES_MEDIUM_LIMITS_CPU}" \
   --set server.service.type=LoadBalancer \
   --set injector.enabled=true \
-  --set injector.resources.requests.memory=64Mi \
-  --set injector.resources.requests.cpu=50m \
-  --set injector.resources.limits.memory=128Mi \
-  --set injector.resources.limits.cpu=250m \
+  --set injector.resources.requests.memory="${RESOURCES_SMALL_REQUESTS_MEMORY}" \
+  --set injector.resources.requests.cpu="${RESOURCES_SMALL_REQUESTS_CPU}" \
+  --set injector.resources.limits.memory="${RESOURCES_SMALL_LIMITS_MEMORY}" \
+  --set injector.resources.limits.cpu="${RESOURCES_SMALL_LIMITS_CPU}" \
   --set ui.enabled=true \
   --set ui.serviceType=ClusterIP \
-  --wait --timeout 180s
+  --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
-echo "Vault installed. Checking pod status..."
-kubectl ${KC_KUBECTL} -n vault get pods
+log_info "Vault installed. Checking pod status..."
+$(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" get pods
 
 # =============================================================================
 # Vault 초기화 (unseal)

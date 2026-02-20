@@ -146,3 +146,57 @@ wait_for_lb_ip() {
   log_warn "LoadBalancer IP not assigned after ${timeout} attempts"
   return 1
 }
+
+# Get kubectl command with context
+get_kubectl_cmd() {
+  local cluster="${1:-mgmt}"
+  echo "kubectl --kubeconfig ${KUBECONFIG_MULTI} --context kubernetes-admin@${cluster}"
+}
+
+# Get helm command with context
+get_helm_cmd() {
+  local cluster="${1:-mgmt}"
+  echo "helm --kubeconfig ${KUBECONFIG_MULTI} --kube-context kubernetes-admin@${cluster}"
+}
+
+# Ensure namespace exists
+ensure_namespace() {
+  local namespace="$1"
+  local cluster="${2:-mgmt}"
+  local context="kubernetes-admin@${cluster}"
+
+  log_info "Ensuring namespace exists: ${namespace}"
+  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${context}" \
+    create namespace "${namespace}" 2>/dev/null || true
+}
+
+# Ensure namespace exists with privileged PSA
+ensure_namespace_privileged() {
+  local namespace="$1"
+  local cluster="${2:-mgmt}"
+  local context="kubernetes-admin@${cluster}"
+
+  ensure_namespace "${namespace}" "${cluster}"
+
+  log_info "Setting privileged PSA for namespace: ${namespace}"
+  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${context}" \
+    label namespace "${namespace}" \
+    pod-security.kubernetes.io/enforce=privileged \
+    pod-security.kubernetes.io/audit=privileged \
+    pod-security.kubernetes.io/warn=privileged \
+    --overwrite 2>/dev/null || true
+}
+
+# Wait for cloud-init and verify node readiness
+wait_for_node_ready() {
+  local node_name="$1"
+
+  log_info "Waiting for cloud-init to complete on ${node_name}..."
+  multipass exec "${node_name}" -- bash -c "cloud-init status --wait"
+
+  log_info "Verifying Kubernetes components on ${node_name}..."
+  multipass exec "${node_name}" -- bash -c \
+    "which kubeadm && which kubectl && which kubelet && systemctl is-active containerd"
+
+  log_info "Node ${node_name} is ready ✓"
+}
