@@ -1,0 +1,120 @@
+# Falco Helm Values
+# Chart: falcosecurity/falco
+# Purpose: Runtime security monitoring and threat detection
+
+# Driver (eBPF or kernel module)
+driver:
+  kind: ebpf  # Use eBPF for portability (no kernel module compilation)
+
+# Falco configuration
+falco:
+  # Rules files (default + custom)
+  rules_file:
+    - /etc/falco/falco_rules.yaml
+    - /etc/falco/falco_rules.local.yaml
+    - /etc/falco/k8s_audit_rules.yaml
+
+  # JSON output for log aggregation
+  json_output: true
+  json_include_output_property: true
+
+  # Log severity
+  log_level: info
+  priority: warning  # Minimum rule priority to log (emergency, alert, critical, error, warning, notice, info, debug)
+
+  # Syscall event drops
+  syscall_event_drops:
+    actions:
+      - log
+      - alert
+    rate: 0.03333  # 1 alert per 30 seconds
+    max_burst: 10
+
+  # gRPC server (for falcoctl)
+  grpc:
+    enabled: true
+    bind_address: "unix:///var/run/falco/falco.sock"
+
+  # HTTP output (webhook)
+  http_output:
+    enabled: false
+    url: ""  # Set to alerting webhook (e.g., Slack, PagerDuty)
+
+# Rules
+customRules:
+  # Example: Detect shell in container
+  custom-rules.yaml: |-
+    - rule: Shell Spawned in Container
+      desc: Detect shell spawned inside a container
+      condition: >
+        spawned_process and container and shell_procs and proc.pname exists
+      output: >
+        Shell spawned in container (user=%user.name container_id=%container.id
+        container_name=%container.name shell=%proc.name parent=%proc.pname
+        cmdline=%proc.cmdline)
+      priority: WARNING
+      tags: [container, shell, mitre_execution]
+
+    # Kubernetes-specific rules
+    - rule: K8s ConfigMap Modified
+      desc: Detect modifications to Kubernetes ConfigMaps
+      condition: >
+        kevt and configmap and kmodify
+      output: >
+        ConfigMap modified (user=%ka.user.name resource=%ka.target.name
+        namespace=%ka.target.namespace verb=%ka.verb)
+      priority: WARNING
+      tags: [k8s, configmap]
+
+# Falcosidekick (event forwarder)
+falcosidekick:
+  enabled: true
+
+  # Outputs
+  config:
+    # Slack
+    slack:
+      webhookurl: ""  # Set to Slack webhook URL
+      minimumpriority: warning
+
+    # Loki (log aggregation)
+    loki:
+      hostport: http://loki-gateway.observability.svc
+      minimumpriority: warning
+
+  # Resources
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Resources (Falco DaemonSet)
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Tolerations (run on all nodes including control-plane)
+tolerations:
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/master
+
+# ServiceMonitor for Prometheus
+serviceMonitor:
+  enabled: true
+
+# Audit log integration (requires K8s audit webhook)
+# See: https://falco.org/docs/event-sources/kubernetes-audit/
+auditLog:
+  enabled: false
+  # dynamicBackend:
+  #   enabled: true
+  #   url: http://falco.falco.svc:8765/k8s-audit

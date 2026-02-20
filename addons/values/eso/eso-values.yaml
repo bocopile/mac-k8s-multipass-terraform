@@ -1,0 +1,13 @@
+# External Secrets Operator Helm Values
+# Chart: external-secrets/external-secrets
+# Purpose: Sync secrets from external secret stores (Vault) to Kubernetes
+
+# CRD installation
+installCRDs: true
+
+# Prometheus integration
+prometheus:
+  enabled: true
+
+serviceMonitor:
+  enabled: true

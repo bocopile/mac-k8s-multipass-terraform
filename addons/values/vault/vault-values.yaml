@@ -1,9 +1,45 @@
+# Vault Helm Values
+# Chart: hashicorp/vault
+# Purpose: Secret management and PKI
+
 server:
-  dev:
+  # Data storage configuration
+  dataStorage:
+    storageClass: local-path-retain
+    size: 10Gi
+
+  # Standalone mode (single instance, no HA)
+  standalone:
     enabled: true
+
+  ha:
+    enabled: false
+
+  # Resource limits
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+  # Service configuration
   service:
     type: LoadBalancer
-    annotations:
-      external-dns.alpha.kubernetes.io/hostname: vault.bocopile.io
+
+# Vault Agent Injector
+injector:
+  enabled: true
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 250m
+
+# UI configuration
 ui:
   enabled: true
+  serviceType: ClusterIP

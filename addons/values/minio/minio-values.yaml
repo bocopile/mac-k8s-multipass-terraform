@@ -1,0 +1,52 @@
+# MinIO Helm Values (Demo Environment)
+# Chart: bitnami/minio
+# Purpose: S3-compatible object storage for backups
+# Optimized for: Mac M1 Max (10-core, 64GB RAM) demo/testing environment
+
+# Authentication
+auth:
+  rootUser: minioadmin
+  rootPassword: minioadmin123
+
+# Deployment mode
+mode: standalone
+
+# Persistence (OPTIMIZED FOR DEMO)
+# Original: 50Gi (production)
+# Demo:     15Gi (7-day demo period, 54% reduction)
+persistence:
+  enabled: true
+  storageClass: local-path
+  size: 15Gi
+
+# Service configuration
+service:
+  type: LoadBalancer
+  ports:
+    api: 9000
+    console: 9001
+
+# Default buckets (auto-created)
+# velero-backups: Cluster backups (Velero)
+# thanos: Long-term metrics (Thanos)
+# loki-logs: Future log storage (Loki)
+# tempo-traces: Future trace storage (Tempo)
+defaultBuckets: "velero-backups,thanos,loki-logs,tempo-traces"
+
+# Resources (OPTIMIZED FOR DEMO)
+# Original: 256Mi-512Mi memory, 100m-500m CPU
+# Demo:     128Mi-256Mi memory, 50m-250m CPU (50% reduction)
+resources:
+  requests:
+    memory: 128Mi
+    cpu: 50m
+  limits:
+    memory: 256Mi
+    cpu: 250m
+
+# Storage Usage Estimates (7-day demo):
+# - Velero backups:    ~2-3GB (3-day retention)
+# - Thanos metrics:    ~2-3GB (7-day retention)
+# - Loki logs:         ~1-2GB (future)
+# - Tempo traces:      ~1GB (future)
+# Total expected:      ~6-9GB / 15GB available

@@ -1,18 +1,76 @@
+# MetalLB Configuration (CRD-based, not Helm)
+# Installation: kubectl apply via install-metallb.sh
+# Purpose: L2 Load Balancer for bare-metal Kubernetes
+
+# This file is a template/reference
+# Actual configuration is dynamically generated from clusters.json
+
+---
+# Example: mgmt cluster
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
   namespace: metallb-system
-  name: default-address-pool
+  name: mgmt-pool
 spec:
   addresses:
-    - 192.168.65.200-192.168.65.250
+    - 192.168.64.200-192.168.64.210  # 11 IPs for mgmt cluster
 
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
   namespace: metallb-system
-  name: default
+  name: mgmt-l2adv
 spec:
   ipAddressPools:
-    - default-address-pool
+    - mgmt-pool
+
+---
+# Example: app1 cluster
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  namespace: metallb-system
+  name: app1-pool
+spec:
+  addresses:
+    - 192.168.64.211-192.168.64.220  # 10 IPs for app1 cluster
+
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  namespace: metallb-system
+  name: app1-l2adv
+spec:
+  ipAddressPools:
+    - app1-pool
+
+---
+# Example: app2 cluster
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  namespace: metallb-system
+  name: app2-pool
+spec:
+  addresses:
+    - 192.168.64.221-192.168.64.230  # 10 IPs for app2 cluster
+
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  namespace: metallb-system
+  name: app2-l2adv
+spec:
+  ipAddressPools:
+    - app2-pool
+
+---
+# Notes:
+# - IP ranges are defined in locals.tf (metallb_pool)
+# - install-metallb.sh reads from clusters.json and generates configuration dynamically
+# - Each cluster gets its own IPAddressPool and L2Advertisement
+# - L2 mode is used (not BGP) for simplicity on local development

@@ -1,10 +1,51 @@
-configs:
-  secret:
-    # admin
-    argocdServerAdminPassword: $2y$12$2btfod59SWVmV09TuHabu.1j8Xq7kD3Pn7wF0zW9deziF0zHW9Soa
+# ArgoCD Helm Values
+# Chart: argo/argo-cd
+# Purpose: GitOps continuous delivery
 
+# Server configuration
 server:
-  ingress:
-    enabled: false
   service:
-    type: LoadBalancer
+    type: ClusterIP
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+
+# Application Controller
+controller:
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+# Repository Server
+repoServer:
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+
+# Redis
+redis:
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 100m
+
+# Configuration
+configs:
+  params:
+    # Disable TLS (insecure mode for local development)
+    server.insecure: true

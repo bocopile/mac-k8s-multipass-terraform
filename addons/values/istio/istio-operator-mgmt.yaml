@@ -1,0 +1,112 @@
+# Istio Operator Configuration (mgmt cluster)
+# Installation: istioctl install -f istio-operator-mgmt.yaml
+# Purpose: Service mesh for platform services (Gateway only, no sidecar injection)
+
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: istio-mgmt
+  namespace: istio-system
+spec:
+  profile: default
+
+  # Istio CNI plugin (coexist with Cilium)
+  components:
+    cni:
+      enabled: true
+      namespace: kube-system
+
+    # Ingress Gateway
+    ingressGateways:
+      - name: istio-ingressgateway
+        enabled: true
+        k8s:
+          service:
+            type: LoadBalancer
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+    # Egress Gateway (disabled)
+    egressGateways:
+      - name: istio-egressgateway
+        enabled: false
+
+    # Pilot (Istiod)
+    pilot:
+      enabled: true
+      k8s:
+        resources:
+          requests:
+            cpu: 200m
+            memory: 500Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        env:
+          # Workload entry auto-registration
+          - name: PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION
+            value: "true"
+          - name: PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS
+            value: "true"
+
+  # Mesh configuration
+  meshConfig:
+    # Default proxy config
+    defaultConfig:
+      proxyMetadata:
+        # Cilium integration
+        ISTIO_META_DNS_CAPTURE: "false"
+
+    # Access logging (observability)
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
+
+    # Prometheus integration
+    enablePrometheusMerge: true
+
+  # Global values
+  values:
+    global:
+      # Multi-cluster mesh
+      meshID: mesh-mgmt
+      multiCluster:
+        clusterName: mgmt
+
+      # Proxy resources
+      proxy:
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+
+      # Istio CNI
+      cni:
+        enabled: true
+        chained: true  # Chain with Cilium
+
+      istioNamespace: istio-system
+
+    # Sidecar injection (disabled for mgmt cluster)
+    sidecarInjectorWebhook:
+      enableNamespacesByDefault: false
+
+      neverInjectSelector:
+        - matchExpressions:
+            - key: istio-injection
+              operator: DoesNotExist
+
+    # Telemetry
+    telemetry:
+      enabled: true
+      v2:
+        enabled: true
+        prometheus:
+          enabled: true

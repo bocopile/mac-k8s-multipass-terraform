@@ -1,0 +1,48 @@
+# Thanos Helm Values
+# Chart: bitnami/thanos
+# Purpose: Long-term metrics storage and query
+
+# Receive component (ingests remote write from Prometheus Agent)
+receive:
+  enabled: true
+  replicaCount: 1
+
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 20Gi
+
+  service:
+    type: LoadBalancer
+
+  tsdbRetention: 15d
+
+# Query component (unified query interface)
+query:
+  enabled: true
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+
+# Query Frontend (query caching and splitting)
+queryFrontend:
+  enabled: true
+  replicaCount: 1
+
+# Store Gateway (disabled - using local storage only)
+storegateway:
+  enabled: false
+
+# Compactor (data compaction and downsampling)
+compactor:
+  enabled: true
+
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 10Gi
+
+# Ruler (disabled - using Prometheus Alertmanager)
+ruler:
+  enabled: false

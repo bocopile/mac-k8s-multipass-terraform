@@ -1,0 +1,117 @@
+# Robusta Helm Values
+# Chart: robusta/robusta
+# Purpose: AI-powered incident response and root cause analysis (HolmesGPT)
+
+# Robusta configuration
+globalConfig:
+  # Cluster name
+  cluster_name: mgmt  # Change per cluster (mgmt, app1, app2)
+
+  # AI backend (HolmesGPT)
+  holmes:
+    enabled: true
+    # Use self-hosted HolmesGPT or Robusta Cloud
+    backend: local  # or 'cloud'
+
+    # Local AI backend (LocalAI)
+    localai:
+      url: http://localai.aiops.svc:8080
+      model: gpt-3.5-turbo
+
+    # Robusta Cloud (requires API key)
+    # api_key: ""  # Set via secret
+
+  # Prometheus integration
+  prometheus_url: http://prometheus-operated.observability.svc:9090
+
+  # AlertManager integration
+  alertmanager_url: http://alertmanager-operated.observability.svc:9093
+
+  # Grafana integration
+  grafana_url: http://kube-prometheus-stack-grafana.observability.svc
+
+# Playbooks (automated incident response)
+playbooksConfig:
+  # Default playbooks
+  default_playbooks:
+    # Pod crash analysis
+    - triggers:
+        - on_pod_crash_loop:
+            restart_count: 3
+      actions:
+        - holmes_investigate: {}
+        - create_issue: {}
+
+    # High CPU usage
+    - triggers:
+        - on_prometheus_alert:
+            alert_name: HighCPUUsage
+      actions:
+        - holmes_investigate: {}
+        - logs_enricher: {}
+
+    # OOM killed
+    - triggers:
+        - on_pod_oom_killed: {}
+      actions:
+        - holmes_investigate: {}
+        - pod_graph_enricher: {}
+        - logs_enricher: {}
+
+# Sinks (notification channels)
+sinksConfig:
+  # Slack
+  - slack_sink:
+      name: main_slack
+      slack_channel: kubernetes-alerts
+      api_key: ""  # Set via secret (create with kubectl create secret)
+
+  # Loki (log aggregation)
+  - loki_sink:
+      name: main_loki
+      url: http://loki-gateway.observability.svc/loki/api/v1/push
+
+# Runner (executes playbooks)
+runner:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Forwarder (receives alerts)
+kubewatch:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ServiceMonitor
+serviceMonitor:
+  enabled: true
+
+# RBAC
+rbac:
+  create: true
+
+# ServiceAccount
+serviceAccount:
+  create: true
+
+# Installation notes:
+# 1. Create Slack API key secret:
+#    kubectl create secret generic robusta-slack-key \
+#      --from-literal=slack-api-key=xoxb-your-token \
+#      -n robusta
+#
+# 2. For Robusta Cloud (optional):
+#    kubectl create secret generic robusta-cloud-key \
+#      --from-literal=api-key=your-api-key \
+#      -n robusta
+#
+# 3. LocalAI must have a compatible model loaded (e.g., gpt-3.5-turbo)

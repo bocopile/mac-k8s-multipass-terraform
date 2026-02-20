@@ -1,70 +1,277 @@
 #!/bin/bash
-helm repo add istio https://istio-release.storage.googleapis.com/charts
-helm repo add argo https://argoproj.github.io/argo-helm
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
-helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-helm repo add kiali https://kiali.org/helm-charts
-helm repo add hashicorp https://helm.releases.hashicorp.com
-helm repo add metallb https://metallb.github.io/metallb
-helm repo add containeroo https://charts.containeroo.ch
-helm repo update
+set -eo pipefail
 
-# MetalLB
-helm upgrade --install metallb metallb/metallb -n metallb-system --create-namespace
-sleep 40 #Wait for metalLB
-kubectl apply -f values/metallb/metallb-config.yaml
+# Usage: addons/install.sh [options] [addon-names...]
+# Batch install Kubernetes addons
 
-# 로컬 동적 프로바이더
-helm upgrade --install my-local-path-provisioner containeroo/local-path-provisioner --version 0.0.22 -n local-path-storage --create-namespace --values values/rancher/local-path.yaml
-# Istio
-helm upgrade --install istio-base istio/base -n istio-system --create-namespace -f values/istio/istio-values.yaml
-helm upgrade --install istiod istio/istiod -n istio-system -f values/istio/istio-values.yaml
-helm upgrade --install istio-ingress istio/gateway -n istio-ingress --create-namespace -f values/istio/istio-values.yaml
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ADDON_SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
 
-# ArgoCD
-helm upgrade --install argocd argo/argo-cd -n argocd --create-namespace -f values/argocd/argocd-values.yaml
+# Addon 카테고리 정의
+declare -A CATEGORIES
+CATEGORIES[infrastructure]="cilium tetragon metallb gateway-api cert-manager clustermesh"
+CATEGORIES[secrets]="vault vault-pki eso"
+CATEGORIES[gitops]="argocd"
+CATEGORIES[observability]="prometheus-stack thanos prometheus-agent loki tempo otel-collector"
+CATEGORIES[servicemesh]="istio kiali"
+CATEGORIES[security]="kyverno falco platform-addons"
+CATEGORIES[aiops]="k8sgpt holmesgpt botkube"
+CATEGORIES[backup]="minio velero"
 
-# Monitoring
-helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n monitoring --create-namespace -f values/monitoring/monitoring-values.yaml
+set -u
 
-# Logging
-helm upgrade --install loki grafana/loki-stack -n logging --create-namespace -f values/logging/loki-values.yaml
-helm upgrade --install promtail grafana/promtail -n logging --create-namespace -f values/logging/promtail-values.yaml
+# Addon 설치 순서 (의존성 기반)
+INSTALL_ORDER=(
+    "cilium"
+    "tetragon"
+    "metallb"
+    "gateway-api"
+    "clustermesh"
+    "cert-manager"
+    "vault"
+    "vault-pki"
+    "eso"
+    "argocd"
+    "platform-addons"
+    "k8sgpt"
+    "thanos"
+    "prometheus-stack"
+    "prometheus-agent"
+    "loki"
+    "tempo"
+    "otel-collector"
+    "istio"
+    "kiali"
+    "kyverno"
+    "falco"
+    "holmesgpt"
+    "botkube"
+    "minio"
+    "velero"
+)
 
-# Tracing
-helm upgrade --install jaeger jaegertracing/jaeger -n tracing --create-namespace -f values/tracing/jaeger-values.yaml
-helm upgrade --install otel open-telemetry/opentelemetry-collector -n tracing -f values/tracing/otel-values.yaml
-helm upgrade --install kiali kiali/kiali-server -n istio-system -f values/tracing/kiali-values.yaml
+# 사용법 출력
+usage() {
+    cat <<EOF
+사용법: $(basename "$0") [옵션] [addon-names...]
 
-# Vault
-helm upgrade --install vault hashicorp/vault -n vault --create-namespace -f values/vault/vault-values.yaml
+옵션:
+    --all               모든 addon 설치 (botkube 제외)
+    --category <name>   카테고리별 설치 (secrets, gitops, observability, servicemesh, security, aiops, backup)
+    --list              설치 가능한 addon 목록 출력
+    -h, --help          도움말 출력
 
-# --- LoadBalancer IP to /etc/hosts mapping ---
-echo "[INFO] Waiting for LoadBalancer IPs to be assigned..."
-#sleep 60  # Wait for IPs to be assigned
+예시:
+    # 모든 addon 설치
+    $(basename "$0") --all
 
-HOSTS_FILE="./hosts.generated"
-echo "" > "$HOSTS_FILE"
+    # 특정 카테고리 설치
+    $(basename "$0") --category observability
 
-# DOMAIN:SERVICE.NAMESPACE
-SERVICE_MAP="argocd.bocopile.io:argocd-server.argocd grafana.bocopile.io:kube-prometheus-stack-grafana.monitoring jaeger.bocopile.io:jaeger-query.tracing kiali.bocopile.io:kiali.istio-system vault.bocopile.io:vault.vault "
+    # 특정 addon만 설치
+    $(basename "$0") vault argocd prometheus-stack
 
-for entry in $SERVICE_MAP; do
-  domain=${entry%%:*}
-  svc_ns=${entry##*:}
-  svc_name=${svc_ns%%.*}
-  svc_ns_only=${svc_ns##*.}
-  ip=$(kubectl get svc -n "$svc_ns_only" "$svc_name" -o jsonpath="{.status.loadBalancer.ingress[0].ip}")
-  if [[ -n "$ip" ]]; then
-    echo "$ip $domain" >> "$HOSTS_FILE"
-    echo "[OK] $domain -> $ip"
-  else
-    echo "[WARN] No IP found for $domain"
-  fi
-done
+    # 여러 addon 설치
+    $(basename "$0") vault eso argocd
 
-echo ""
-echo "[INFO] Generated $HOSTS_FILE with current LoadBalancer IP mappings."
-echo "[INFO] To apply, run: sudo cp $HOSTS_FILE /etc/hosts"
+카테고리:
+    infrastructure  - Cilium CNI, Tetragon, MetalLB, Gateway API, cert-manager, Cluster Mesh
+    secrets         - Vault, Vault PKI, External Secrets Operator
+    gitops          - ArgoCD
+    observability   - Prometheus, Thanos, Loki, Tempo, OpenTelemetry
+    servicemesh     - Istio, Kiali
+    security        - Kyverno, Falco, Platform Addons (Trivy, K8sGPT Operator, etc.)
+    aiops           - K8sGPT, HolmesGPT, Botkube
+    backup          - MinIO, Velero
+
+Available addons:
+$(list_addons)
+EOF
+}
+
+# Addon 목록 출력
+list_addons() {
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Available Addons"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    for category in "${!CATEGORIES[@]}"; do
+        echo ""
+        echo "[$category]"
+        local addons="${CATEGORIES[$category]}"
+        for addon in $addons; do
+            local script="${ADDON_SCRIPTS_DIR}/install-${addon}.sh"
+            # setup-* 스크립트 특수 처리
+            if [[ "$addon" == "clustermesh" ]]; then
+                script="${ADDON_SCRIPTS_DIR}/setup-clustermesh.sh"
+            elif [[ "$addon" == "vault-pki" ]]; then
+                script="${ADDON_SCRIPTS_DIR}/setup-vault-pki.sh"
+            fi
+
+            if [[ -f "$script" ]]; then
+                echo "  ✓ $addon"
+            else
+                echo "  ✗ $addon (script not found: $script)"
+            fi
+        done
+    done
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# Addon 설치
+install_addon() {
+    local addon=$1
+    local script="${ADDON_SCRIPTS_DIR}/install-${addon}.sh"
+
+    # setup-* 스크립트 특수 처리
+    if [[ "$addon" == "clustermesh" ]]; then
+        script="${ADDON_SCRIPTS_DIR}/setup-clustermesh.sh"
+    elif [[ "$addon" == "vault-pki" ]]; then
+        script="${ADDON_SCRIPTS_DIR}/setup-vault-pki.sh"
+    fi
+
+    if [[ ! -f "$script" ]]; then
+        echo "ERROR: Addon script not found: $script"
+        return 1
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Installing: $addon"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    if bash "$script"; then
+        echo ""
+        echo "✅ $addon installed successfully"
+        return 0
+    else
+        echo ""
+        echo "❌ $addon installation failed"
+        return 1
+    fi
+}
+
+# Main
+main() {
+    local addons_to_install=()
+
+    # 인자 파싱
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --all)
+                # 모든 addon 설치 (botkube는 수동 설치 필요하므로 제외)
+                for addon in "${INSTALL_ORDER[@]}"; do
+                    if [[ "$addon" != "botkube" ]]; then
+                        addons_to_install+=("$addon")
+                    fi
+                done
+                shift
+                ;;
+            --category)
+                if [[ -z "${2:-}" ]]; then
+                    echo "ERROR: --category requires a category name"
+                    usage
+                    exit 1
+                fi
+                category=$2
+                if [[ ! -v CATEGORIES[$category] ]]; then
+                    echo "ERROR: Unknown category: $category"
+                    usage
+                    exit 1
+                fi
+                for addon in ${CATEGORIES[$category]}; do
+                    addons_to_install+=("$addon")
+                done
+                shift 2
+                ;;
+            --list)
+                list_addons
+                exit 0
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            -*)
+                echo "ERROR: Unknown option: $1"
+                usage
+                exit 1
+                ;;
+            *)
+                addons_to_install+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # Addon이 지정되지 않은 경우
+    if [[ ${#addons_to_install[@]} -eq 0 ]]; then
+        echo "ERROR: No addons specified"
+        usage
+        exit 1
+    fi
+
+    # 설치 순서대로 정렬
+    local sorted_addons=()
+    for addon in "${INSTALL_ORDER[@]}"; do
+        for selected in "${addons_to_install[@]}"; do
+            if [[ "$addon" == "$selected" ]]; then
+                sorted_addons+=("$addon")
+            fi
+        done
+    done
+
+    # 설치 시작
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Addon Installation Plan"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Addons to install (${#sorted_addons[@]}):"
+    for addon in "${sorted_addons[@]}"; do
+        echo "    - $addon"
+    done
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    read -p "Proceed with installation? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Installation cancelled."
+        exit 0
+    fi
+
+    # Addon 설치
+    local failed_addons=()
+    for addon in "${sorted_addons[@]}"; do
+        if ! install_addon "$addon"; then
+            failed_addons+=("$addon")
+        fi
+    done
+
+    # 결과 출력
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Installation Summary"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Total: ${#sorted_addons[@]}"
+    echo "  Success: $((${#sorted_addons[@]} - ${#failed_addons[@]}))"
+    echo "  Failed: ${#failed_addons[@]}"
+
+    if [[ ${#failed_addons[@]} -gt 0 ]]; then
+        echo ""
+        echo "  Failed addons:"
+        for addon in "${failed_addons[@]}"; do
+            echo "    ❌ $addon"
+        done
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    else
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "✅ All addons installed successfully!"
+        exit 0
+    fi
+}
+
+main "$@"

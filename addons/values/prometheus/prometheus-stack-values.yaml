@@ -1,0 +1,91 @@
+# Prometheus Stack Helm Values
+# Chart: prometheus-community/kube-prometheus-stack
+# Purpose: Full observability stack (Prometheus + Grafana + Alertmanager)
+
+# Prometheus configuration
+prometheus:
+  prometheusSpec:
+    # Data retention
+    retention: 7d
+    retentionSize: 5GB
+
+    # Resources
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 200m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+
+    # Storage
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path-retain
+          resources:
+            requests:
+              storage: 10Gi
+
+    # External labels
+    externalLabels:
+      cluster: mgmt
+
+    # Remote write receiver (for Thanos)
+    enableRemoteWriteReceiver: true
+
+  service:
+    type: ClusterIP
+
+# Grafana configuration
+grafana:
+  enabled: true
+  adminPassword: admin
+
+  service:
+    type: ClusterIP
+
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+
+  # Persistence
+  persistence:
+    enabled: true
+    storageClassName: local-path-retain
+    size: 5Gi
+
+  # Sidecar for dashboards and datasources
+  sidecar:
+    dashboards:
+      enabled: true
+    datasources:
+      enabled: true
+
+# Alertmanager configuration
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    resources:
+      requests:
+        memory: 64Mi
+        cpu: 50m
+      limits:
+        memory: 128Mi
+        cpu: 100m
+
+  service:
+    type: ClusterIP
+
+# Node Exporter
+nodeExporter:
+  enabled: true
+
+# Kube State Metrics
+kubeStateMetrics:
+  enabled: true

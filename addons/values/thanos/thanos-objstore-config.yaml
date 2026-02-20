@@ -1,0 +1,35 @@
+# Thanos Object Storage Configuration (MinIO)
+# Create as Secret before installing Thanos
+#
+# Usage:
+#   kubectl create secret generic thanos-objstore-config \
+#     --from-file=objstore.yml=thanos-objstore-config.yaml \
+#     -n observability
+
+type: S3
+config:
+  bucket: thanos
+  endpoint: minio.backup.svc.cluster.local:9000
+  access_key: minio
+  secret_key: minio123  # Change this in production!
+  insecure: true        # Use false with TLS in production
+  signature_version2: false
+  http_config:
+    idle_conn_timeout: 90s
+    response_header_timeout: 2m
+    insecure_skip_verify: true  # Use false in production
+
+# Notes:
+# - MinIO credentials must match those in install-minio.sh
+# - Bucket 'thanos' will be auto-created by MinIO
+# - For production: use External Secrets to inject credentials from Vault
+#
+# Create secret:
+#   kubectl create secret generic thanos-objstore-config \
+#     --from-file=objstore.yml=thanos-objstore-config.yaml \
+#     -n observability
+#
+# Update install-thanos.sh to use this config:
+#   --set objstoreConfig.create=false \
+#   --set objstoreConfig.name=thanos-objstore-config \
+#   --set objstoreConfig.key=objstore.yml

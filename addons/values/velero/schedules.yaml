@@ -1,0 +1,96 @@
+# Velero Backup Schedules
+# Applied after Velero installation
+# Purpose: Automated periodic backups
+
+---
+# Daily full cluster backup (all namespaces)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-full-backup
+  namespace: velero
+spec:
+  # Every day at 2:00 AM
+  schedule: "0 2 * * *"
+  template:
+    # Backup all namespaces
+    includedNamespaces:
+      - "*"
+
+    # Exclude temporary namespaces
+    excludedNamespaces:
+      - kube-system
+      - kube-public
+      - kube-node-lease
+
+    # Include PVs
+    snapshotVolumes: true
+
+    # TTL: 30 days
+    ttl: 720h0m0s
+
+    # Storage location
+    storageLocation: default
+
+---
+# Hourly critical namespaces backup
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: hourly-critical-backup
+  namespace: velero
+spec:
+  # Every hour
+  schedule: "0 * * * *"
+  template:
+    # Only critical namespaces
+    includedNamespaces:
+      - vault
+      - argocd
+      - production
+
+    # Include PVs
+    snapshotVolumes: true
+
+    # TTL: 7 days
+    ttl: 168h0m0s
+
+    # Storage location
+    storageLocation: default
+
+---
+# Weekly full backup with longer retention
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: weekly-full-backup
+  namespace: velero
+spec:
+  # Every Sunday at 3:00 AM
+  schedule: "0 3 * * 0"
+  template:
+    # Backup everything
+    includedNamespaces:
+      - "*"
+
+    # Include PVs
+    snapshotVolumes: true
+
+    # TTL: 90 days
+    ttl: 2160h0m0s
+
+    # Storage location
+    storageLocation: default
+
+---
+# Notes:
+# - All schedules use default backup storage location (MinIO)
+# - Each cluster has its own backup prefix (mgmt/, app1/, app2/)
+# - Node Agent (Restic) handles PV backups
+# - Adjust schedules based on RPO requirements
+#
+# Manual backup:
+#   velero backup create manual-backup --include-namespaces production
+#
+# Restore:
+#   velero restore create --from-backup daily-full-backup-20260220020000

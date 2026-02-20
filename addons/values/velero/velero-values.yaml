@@ -1,0 +1,62 @@
+# Velero Helm Values
+# Chart: vmware-tanzu/velero
+# Purpose: Kubernetes cluster backup and disaster recovery
+
+# Backup storage location (MinIO S3-compatible)
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: velero-backups
+      # IMPORTANT: prefix must be set per cluster during installation
+      # --set configuration.backupStorageLocation[0].prefix=mgmt
+      prefix: ""  # Will be set dynamically (mgmt, app1, app2)
+      config:
+        region: minio
+        s3ForcePathStyle: true
+        # IMPORTANT: s3Url must be set during installation
+        # --set configuration.backupStorageLocation[0].config.s3Url=http://minio.backup.svc:9000
+        s3Url: ""  # Will be set dynamically
+      credential:
+        name: velero-s3-credentials
+        key: aws
+
+  # Volume snapshot location
+  volumeSnapshotLocation:
+    - name: default
+      provider: aws
+      config:
+        region: minio
+
+# Snapshots (disabled - using node-agent/Restic for volume backups)
+snapshotsEnabled: false
+
+# Node Agent (replaces Restic, for PV backups)
+deployNodeAgent: true
+
+nodeAgent:
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 512Mi
+      cpu: 200m
+
+# Credentials (existing secret created by install-velero.sh)
+credentials:
+  existingSecret: velero-s3-credentials
+
+# Plugins
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.11.0
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+# Metrics
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true

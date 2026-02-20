@@ -1,0 +1,126 @@
+# Kiali Helm Values
+# Chart: kiali/kiali-operator
+# Purpose: Service mesh observability dashboard for Istio
+
+# Kiali CR (Custom Resource)
+cr:
+  create: true
+  namespace: istio-system
+
+  spec:
+    # Authentication strategy
+    auth:
+      strategy: anonymous  # For dev/test (use token/openid for production)
+
+    # Deployment configuration
+    deployment:
+      # Accessibility
+      accessible_namespaces:
+        - '**'  # All namespaces
+
+      # Resources
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+      # View-only mode
+      view_only_mode: false
+
+    # External services
+    external_services:
+      # Prometheus
+      prometheus:
+        url: http://prometheus-operated.observability.svc:9090
+
+      # Grafana
+      grafana:
+        enabled: true
+        url: http://kube-prometheus-stack-grafana.observability.svc
+        in_cluster_url: http://kube-prometheus-stack-grafana.observability.svc
+
+      # Jaeger/Tempo (tracing)
+      tracing:
+        enabled: true
+        in_cluster_url: http://tempo.tempo.svc:3100
+        use_grpc: true
+
+      # Istio
+      istio:
+        config_map_name: istio
+        istio_identity_domain: svc.cluster.local
+        istio_sidecar_injector_config_map_name: istio-sidecar-injector
+        url_service_version: http://istiod.istio-system.svc:15014/version
+
+    # Server configuration
+    server:
+      web_root: /kiali
+
+      # Metrics
+      metrics_enabled: true
+      metrics_port: 9090
+
+    # Kiali features
+    kiali_feature_flags:
+      # UI features
+      istio_injection_action: true
+      istio_upgrade_action: false
+      ui_defaults:
+        graph:
+          traffic:
+            grpc: requests
+            http: requests
+            tcp: sent
+        metrics_per_refresh: "1m"
+        namespaces: []
+        refresh_interval: "60s"
+
+# Operator configuration
+operator:
+  # Resources
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Expose Kiali via Istio Gateway (optional)
+# Create Gateway + VirtualService after installation:
+# ---
+# apiVersion: networking.istio.io/v1
+# kind: Gateway
+# metadata:
+#   name: kiali-gateway
+#   namespace: istio-system
+# spec:
+#   selector:
+#     istio: ingressgateway
+#   servers:
+#     - port:
+#         number: 80
+#         name: http
+#         protocol: HTTP
+#       hosts:
+#         - kiali.local
+# ---
+# apiVersion: networking.istio.io/v1
+# kind: VirtualService
+# metadata:
+#   name: kiali
+#   namespace: istio-system
+# spec:
+#   hosts:
+#     - kiali.local
+#   gateways:
+#     - kiali-gateway
+#   http:
+#     - route:
+#         - destination:
+#             host: kiali
+#             port:
+#               number: 20001

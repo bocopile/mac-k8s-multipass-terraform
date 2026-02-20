@@ -1,0 +1,62 @@
+# Tetragon Helm Values
+# Chart: cilium/tetragon
+# Purpose: eBPF-based Security Observability and Runtime Enforcement
+
+# Tetragon Operator
+tetragonOperator:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Tetragon Agent (DaemonSet)
+tetragon:
+  enabled: true
+
+  # gRPC server for tetra CLI
+  grpc:
+    enabled: true
+    address: "localhost:54321"
+
+  # Export configuration
+  export:
+    # File export
+    filenames:
+      - /var/run/cilium/tetragon/tetragon.log
+
+    # Rate limiting
+    rateLimit: 1000  # events per second
+
+  # Resources per node
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Prometheus metrics
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+# Enable process execution tracing
+enableProcessCred: true
+enableProcessNs: true
+
+# TracingPolicy CRDs
+# Apply custom policies after installation:
+#   kubectl apply -f tracing-policies/
+
+# Example policies:
+# - Network egress monitoring
+# - File access auditing
+# - Privilege escalation detection
+# - Container escape attempts

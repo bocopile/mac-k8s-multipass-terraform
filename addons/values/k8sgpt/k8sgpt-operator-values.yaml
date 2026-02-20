@@ -1,0 +1,78 @@
+# K8sGPT Operator Helm Values
+# Chart: k8sgpt/k8sgpt-operator
+# Purpose: AI-powered Kubernetes diagnostics and triaging
+
+# K8sGPT Operator
+controllerManager:
+  manager:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# K8sGPT CR will be created separately
+# Example CR:
+# ---
+# apiVersion: core.k8sgpt.ai/v1alpha1
+# kind: K8sGPT
+# metadata:
+#   name: k8sgpt
+#   namespace: k8sgpt-operator-system
+# spec:
+#   # AI backend (LocalAI)
+#   backend: localai
+#
+#   # LocalAI configuration
+#   localAI:
+#     url: http://localai.aiops.svc:8080
+#     # Model must be pre-loaded in LocalAI
+#     model: gpt-3.5-turbo
+#
+#   # Alternative: OpenAI
+#   # backend: openai
+#   # model: gpt-3.5-turbo
+#   # secret:
+#   #   name: k8sgpt-openai-secret
+#   #   key: api-key
+#
+#   # Analysis settings
+#   filters:
+#     - Pod
+#     - Service
+#     - Deployment
+#     - ReplicaSet
+#     - StatefulSet
+#     - Ingress
+#     - PersistentVolumeClaim
+#     - Node
+#
+#   # AI prompt configuration
+#   ai:
+#     enabled: true
+#     language: english
+#     anonymize: true  # Remove sensitive data before sending to AI
+#
+#   # Integration with Prometheus AlertManager (optional)
+#   # integrations:
+#   #   trivy:
+#   #     enabled: true
+#   #     namespace: trivy-system
+#
+#   # Result sink
+#   sink:
+#     type: slack
+#     endpoint: ""  # Slack webhook URL
+#     secret:
+#       name: k8sgpt-slack-secret
+#       key: webhook-url
+
+# ServiceMonitor
+serviceMonitor:
+  enabled: true
+
+# Webhook
+webhook:
+  enabled: true

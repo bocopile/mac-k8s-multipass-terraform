@@ -1,0 +1,222 @@
+# Botkube Helm Values
+# Chart: botkube/botkube
+# Purpose: ChatOps for Kubernetes (Slack/Teams/Discord integration)
+
+# Communications platforms
+communications:
+  # Slack
+  default-group:
+    slack:
+      enabled: true
+      channels:
+        default:
+          name: kubernetes
+          notification:
+            disabled: false
+          bindings:
+            executors:
+              - kubectl-read-only
+              - kubectl-admin
+            sources:
+              - k8s-events
+              - k8s-recommendation
+      # Token will be set via secret
+      # token: ""  # Create secret: kubectl create secret generic botkube-slack-token --from-literal=token=xoxb-your-token
+
+      # App-level token (required for Slack apps)
+      appToken: ""  # Set via secret
+
+# Executors (commands)
+executors:
+  # Read-only kubectl
+  kubectl-read-only:
+    kubectl:
+      enabled: true
+      namespaces:
+        include:
+          - ".*"
+      commands:
+        verbs:
+          - get
+          - list
+          - describe
+          - explain
+          - logs
+          - top
+        resources:
+          - ".*"
+
+  # Admin kubectl (restricted channels)
+  kubectl-admin:
+    kubectl:
+      enabled: true
+      namespaces:
+        include:
+          - ".*"
+      commands:
+        verbs:
+          - get
+          - list
+          - describe
+          - explain
+          - logs
+          - top
+          - apply
+          - delete
+          - scale
+          - rollout
+        resources:
+          - ".*"
+      # Restrict to specific channels
+      # restrictAccess: true
+
+# Sources (event sources)
+sources:
+  # Kubernetes events
+  k8s-events:
+    kubernetes:
+      enabled: true
+
+      # Event types
+      recommendations:
+        pod:
+          noLatestImageTag: true
+          labelsSet: true
+        ingress:
+          backendServiceValid: true
+          tlsSecretValid: true
+
+      # Resources to watch
+      resources:
+        - type: v1/pods
+          namespaces:
+            include:
+              - ".*"
+          events:
+            - create
+            - delete
+            - error
+
+        - type: v1/services
+          namespaces:
+            include:
+              - ".*"
+          events:
+            - create
+            - delete
+            - error
+
+        - type: apps/v1/deployments
+          namespaces:
+            include:
+              - ".*"
+          events:
+            - create
+            - update
+            - delete
+            - error
+          updateSetting:
+            includeDiff: true
+            fields:
+              - spec.replicas
+
+        - type: v1/nodes
+          events:
+            - create
+            - delete
+            - error
+
+        - type: v1/persistentvolumes
+          events:
+            - create
+            - delete
+            - error
+
+        - type: v1/persistentvolumeclaims
+          namespaces:
+            include:
+              - ".*"
+          events:
+            - create
+            - delete
+            - error
+
+  # Recommendations (best practices)
+  k8s-recommendation:
+    kubernetes:
+      enabled: true
+      recommendations:
+        pod:
+          noLatestImageTag: true
+          labelsSet: true
+        ingress:
+          backendServiceValid: true
+          tlsSecretValid: true
+
+# Settings
+settings:
+  # Cluster name
+  clusterName: mgmt  # Change per cluster (mgmt, app1, app2)
+
+  # Log level
+  log:
+    level: info
+
+  # Upgrade notification
+  upgradeNotifier: true
+
+# Resources
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# ServiceMonitor
+serviceMonitor:
+  enabled: true
+
+# Plugins (optional AI integration)
+plugins:
+  # AI assistant (requires OpenAI/LocalAI)
+  # ai:
+  #   enabled: false
+  #   backend: localai
+  #   endpoint: http://localai.localai.svc:8080
+  #   model: gpt-3.5-turbo
+
+# RBAC
+rbac:
+  create: true
+  # Groups for role bindings
+  groups:
+    'botkube-kubectl-read-only':
+      create: true
+      rules:
+        - apiGroups: ["*"]
+          resources: ["*"]
+          verbs: ["get", "list", "watch"]
+
+    'botkube-kubectl-admin':
+      create: true
+      rules:
+        - apiGroups: ["*"]
+          resources: ["*"]
+          verbs: ["*"]
+
+# ServiceAccount
+serviceAccount:
+  create: true
+
+# Installation notes:
+# 1. Create Slack app: https://api.slack.com/apps
+# 2. Enable Socket Mode and generate App-Level Token
+# 3. Add Bot Token Scopes: chat:write, channels:read, app_mentions:read
+# 4. Install app to workspace
+# 5. Create secret:
+#    kubectl create secret generic botkube-communication-slack \
+#      --from-literal=token=xoxb-your-bot-token \
+#      --from-literal=appToken=xapp-your-app-token \
+#      -n botkube

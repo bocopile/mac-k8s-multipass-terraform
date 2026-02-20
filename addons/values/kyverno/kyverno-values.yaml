@@ -1,0 +1,16 @@
+# Kyverno Helm Values
+# Chart: kyverno/kyverno
+# Purpose: Policy engine for Kubernetes
+
+# Controller replicas
+admissionController:
+  replicas: 1
+
+backgroundController:
+  replicas: 1
+
+cleanupController:
+  replicas: 1
+
+reportsController:
+  replicas: 1

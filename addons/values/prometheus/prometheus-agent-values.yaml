@@ -1,0 +1,55 @@
+# Prometheus Agent Helm Values
+# Chart: prometheus-community/kube-prometheus-stack
+# Purpose: Lightweight metrics collection with remote write to Thanos
+
+# Prometheus configuration (Agent mode)
+prometheus:
+  prometheusSpec:
+    # Agent mode (no local storage, remote write only)
+    mode: Agent
+
+    # Remote write to Thanos Receive
+    # IMPORTANT: remoteWrite URL must be set via --set during installation
+    # --set "prometheus.prometheusSpec.remoteWrite[0].url=http://thanos-receive.observability.svc:19291/api/v1/receive"
+    remoteWrite:
+      - url: ""  # Will be set dynamically by install-prometheus-agent.sh
+        writeRelabelConfigs:
+          - sourceLabels: ["__name__"]
+            action: keep
+            regex: ".*"
+
+    # External labels (cluster identification)
+    # IMPORTANT: cluster label must be set via --set during installation
+    # --set "prometheus.prometheusSpec.externalLabels.cluster=app1"
+    externalLabels:
+      cluster: ""  # Will be set dynamically
+
+    # WAL retention (buffer for Thanos unavailability)
+    # C2: 2h buffer allows mgmt cluster downtime
+    retention: 2h
+    walCompression: true
+
+# Disable full stack components (Agent mode only needs scraping)
+grafana:
+  enabled: false
+
+alertmanager:
+  enabled: false
+
+thanosRuler:
+  enabled: false
+
+# Enable operator and exporters
+prometheusOperator:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+# Self-monitoring
+prometheus:
+  serviceMonitor:
+    selfMonitor: true

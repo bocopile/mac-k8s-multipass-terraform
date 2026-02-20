@@ -1,0 +1,75 @@
+# Tempo Helm Values
+# Chart: grafana/tempo
+# Purpose: Distributed tracing backend (OpenTelemetry-compatible)
+
+# Tempo deployment mode: monolithic (for small/medium clusters)
+tempo:
+  # Storage configuration
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+
+      # For production, use S3-compatible storage:
+      # backend: s3
+      # s3:
+      #   bucket: tempo-traces
+      #   endpoint: minio.minio.svc:9000
+      #   access_key: ${MINIO_ACCESS_KEY}
+      #   secret_key: ${MINIO_SECRET_KEY}
+      #   insecure: true
+
+  # Retention
+  retention: 168h  # 7 days
+
+  # Resources
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Receivers (OTLP, Jaeger, Zipkin)
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+    jaeger:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+
+# Persistence
+persistence:
+  enabled: true
+  storageClassName: local-path-retain
+  size: 10Gi
+
+# ServiceMonitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+# Grafana datasource (auto-provisioned if grafana.enabled: true)
+grafana:
+  enabled: false
+  # Datasource will be added manually to existing Grafana:
+  # apiVersion: 1
+  # datasources:
+  #   - name: Tempo
+  #     type: tempo
+  #     access: proxy
+  #     url: http://tempo.tempo.svc:3100
+
+# Traces-to-metrics integration
+metricsGenerator:
+  enabled: true
+  remoteWriteUrl: http://prometheus-operated.observability.svc:9090/api/v1/write

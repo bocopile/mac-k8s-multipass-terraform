@@ -1,0 +1,13 @@
+# cert-manager Helm Values
+# Chart: jetstack/cert-manager
+# Purpose: Automated TLS certificate management
+
+# CRD installation
+crds:
+  enabled: true
+
+# Prometheus integration
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: true

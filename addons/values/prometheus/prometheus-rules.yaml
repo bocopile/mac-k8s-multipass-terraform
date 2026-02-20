@@ -1,0 +1,342 @@
+# Prometheus Alert Rules
+# Apply after installing kube-prometheus-stack
+# kubectl apply -f prometheus-rules.yaml -n observability
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-critical-alerts
+  namespace: observability
+  labels:
+    prometheus: kube-prometheus-stack
+    role: alert-rules
+spec:
+  groups:
+    # =========================================================================
+    # Pod Health Alerts
+    # =========================================================================
+    - name: pod-health
+      interval: 30s
+      rules:
+        - alert: PodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total[15m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            category: pod-health
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes.
+              Container: {{ $labels.container }}
+              Cluster: {{ $labels.cluster }}
+            runbook_url: "https://runbooks.prometheus-operator.dev/runbooks/kubernetes/podcrashlooping"
+
+        - alert: PodNotReady
+          expr: |
+            sum by (namespace, pod, cluster) (
+              kube_pod_status_phase{phase=~"Pending|Unknown|Failed"} == 1
+            ) > 0
+          for: 10m
+          labels:
+            severity: warning
+            category: pod-health
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} not ready"
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in {{ $labels.phase }} state for more than 10 minutes.
+              Cluster: {{ $labels.cluster }}
+
+        - alert: PodOOMKilled
+          expr: |
+            (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
+          for: 1m
+          labels:
+            severity: critical
+            category: pod-health
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} was OOMKilled"
+            description: |
+              Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} was killed due to Out Of Memory.
+              Consider increasing memory limits or investigating memory leaks.
+              Cluster: {{ $labels.cluster }}
+
+    # =========================================================================
+    # Node Health Alerts
+    # =========================================================================
+    - name: node-health
+      interval: 30s
+      rules:
+        - alert: NodeNotReady
+          expr: |
+            kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            category: node-health
+          annotations:
+            summary: "Node {{ $labels.node }} not ready"
+            description: |
+              Node {{ $labels.node }} has been NotReady for more than 5 minutes.
+              Cluster: {{ $labels.cluster }}
+
+        - alert: NodeMemoryPressure
+          expr: |
+            kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+          for: 5m
+          labels:
+            severity: warning
+            category: node-health
+          annotations:
+            summary: "Node {{ $labels.node }} under memory pressure"
+            description: |
+              Node {{ $labels.node }} is experiencing memory pressure.
+              Consider scaling or evicting pods.
+              Cluster: {{ $labels.cluster }}
+
+        - alert: NodeDiskPressure
+          expr: |
+            kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+          for: 5m
+          labels:
+            severity: warning
+            category: node-health
+          annotations:
+            summary: "Node {{ $labels.node }} under disk pressure"
+            description: |
+              Node {{ $labels.node }} is experiencing disk pressure.
+              Free up disk space or expand storage.
+              Cluster: {{ $labels.cluster }}
+
+    # =========================================================================
+    # Resource Usage Alerts
+    # =========================================================================
+    - name: resource-usage
+      interval: 30s
+      rules:
+        - alert: HighCPUUsage
+          expr: |
+            100 - (avg by (instance, cluster) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+          for: 10m
+          labels:
+            severity: warning
+            category: resource-usage
+          annotations:
+            summary: "High CPU usage on {{ $labels.instance }}"
+            description: |
+              CPU usage on {{ $labels.instance }} is above 80% (current: {{ $value }}%).
+              Cluster: {{ $labels.cluster }}
+
+        - alert: HighMemoryUsage
+          expr: |
+            100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 85
+          for: 10m
+          labels:
+            severity: warning
+            category: resource-usage
+          annotations:
+            summary: "High memory usage on {{ $labels.instance }}"
+            description: |
+              Memory usage on {{ $labels.instance }} is above 85% (current: {{ $value }}%).
+              Cluster: {{ $labels.cluster }}
+
+        - alert: HighDiskUsage
+          expr: |
+            100 - ((node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes) * 100) > 85
+          for: 5m
+          labels:
+            severity: warning
+            category: resource-usage
+          annotations:
+            summary: "High disk usage on {{ $labels.instance }}"
+            description: |
+              Disk usage on {{ $labels.instance }} ({{ $labels.device }}) is above 85% (current: {{ $value }}%).
+              Mountpoint: {{ $labels.mountpoint }}
+              Cluster: {{ $labels.cluster }}
+
+    # =========================================================================
+    # Application Error Rate Alerts (Istio-based)
+    # =========================================================================
+    - name: application-errors
+      interval: 30s
+      rules:
+        - alert: HighHTTPErrorRate
+          expr: |
+            (
+              sum by (destination_service_name, cluster) (
+                rate(istio_requests_total{response_code=~"5.."}[5m])
+              )
+              /
+              sum by (destination_service_name, cluster) (
+                rate(istio_requests_total[5m])
+              )
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            category: application-errors
+          annotations:
+            summary: "High 5xx error rate for {{ $labels.destination_service_name }}"
+            description: |
+              Service {{ $labels.destination_service_name }} has a 5xx error rate above 5% (current: {{ $value | humanizePercentage }}).
+              Cluster: {{ $labels.cluster }}
+              Check logs and traces for root cause.
+
+        - alert: HighHTTPClientErrorRate
+          expr: |
+            (
+              sum by (destination_service_name, cluster) (
+                rate(istio_requests_total{response_code=~"4.."}[5m])
+              )
+              /
+              sum by (destination_service_name, cluster) (
+                rate(istio_requests_total[5m])
+              )
+            ) > 0.20
+          for: 10m
+          labels:
+            severity: warning
+            category: application-errors
+          annotations:
+            summary: "High 4xx error rate for {{ $labels.destination_service_name }}"
+            description: |
+              Service {{ $labels.destination_service_name }} has a 4xx error rate above 20% (current: {{ $value | humanizePercentage }}).
+              Cluster: {{ $labels.cluster }}
+              Check for incorrect client requests or API changes.
+
+    # =========================================================================
+    # Latency Alerts (Istio-based)
+    # =========================================================================
+    - name: application-latency
+      interval: 30s
+      rules:
+        - alert: HighRequestLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum by (destination_service_name, le, cluster) (
+                rate(istio_request_duration_milliseconds_bucket[5m])
+              )
+            ) > 1000
+          for: 5m
+          labels:
+            severity: warning
+            category: application-latency
+          annotations:
+            summary: "High p99 latency for {{ $labels.destination_service_name }}"
+            description: |
+              Service {{ $labels.destination_service_name }} has p99 latency above 1000ms (current: {{ $value }}ms).
+              Cluster: {{ $labels.cluster }}
+              Investigate slow queries, external dependencies, or resource contention.
+
+    # =========================================================================
+    # Observability Stack Health
+    # =========================================================================
+    - name: observability-health
+      interval: 30s
+      rules:
+        - alert: PrometheusDown
+          expr: |
+            up{job="prometheus"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            category: observability-health
+          annotations:
+            summary: "Prometheus is down"
+            description: |
+              Prometheus instance {{ $labels.instance }} is down.
+              Metrics collection is impacted.
+              Cluster: {{ $labels.cluster }}
+
+        - alert: LokiDown
+          expr: |
+            up{job="loki"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            category: observability-health
+          annotations:
+            summary: "Loki is down"
+            description: |
+              Loki instance {{ $labels.instance }} is down.
+              Log aggregation is impacted.
+              Cluster: {{ $labels.cluster }}
+
+        - alert: TempoDown
+          expr: |
+            up{job="tempo"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            category: observability-health
+          annotations:
+            summary: "Tempo is down"
+            description: |
+              Tempo instance {{ $labels.instance }} is down.
+              Trace collection is impacted.
+              Cluster: {{ $labels.cluster }}
+
+        - alert: ThanosReceiveDown
+          expr: |
+            up{job="thanos-receive"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            category: observability-health
+          annotations:
+            summary: "Thanos Receive is down"
+            description: |
+              Thanos Receive is down. Prometheus Agents cannot send metrics.
+              Multi-cluster metrics collection is broken.
+
+    # =========================================================================
+    # PersistentVolume Alerts
+    # =========================================================================
+    - name: storage-health
+      interval: 30s
+      rules:
+        - alert: PersistentVolumeClaimPending
+          expr: |
+            kube_persistentvolumeclaim_status_phase{phase="Pending"} == 1
+          for: 10m
+          labels:
+            severity: warning
+            category: storage-health
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} pending"
+            description: |
+              PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} has been in Pending state for more than 10 minutes.
+              Check StorageClass provisioner.
+              Cluster: {{ $labels.cluster }}
+
+        - alert: PersistentVolumeFull
+          expr: |
+            100 * (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 90
+          for: 5m
+          labels:
+            severity: critical
+            category: storage-health
+          annotations:
+            summary: "PV {{ $labels.persistentvolumeclaim }} is almost full"
+            description: |
+              PersistentVolume {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is {{ $value }}% full.
+              Consider expanding or cleaning up.
+              Cluster: {{ $labels.cluster }}
+
+---
+# Additional Notes:
+#
+# Apply this rule:
+#   kubectl apply -f prometheus-rules.yaml -n observability
+#
+# Verify rules loaded:
+#   kubectl get prometheusrule -n observability
+#
+# Check rule evaluation:
+#   kubectl port-forward -n observability svc/kube-prometheus-stack-prometheus 9090:9090
+#   → http://localhost:9090/rules
+#
+# Silence alerts (maintenance):
+#   kubectl port-forward -n observability svc/kube-prometheus-stack-alertmanager 9093:9093
+#   → http://localhost:9093/#/silences
