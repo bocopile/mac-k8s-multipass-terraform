@@ -172,6 +172,51 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | **결과** | - README.md, .gitignore, 문서 업데이트 완료<br/>- `tofu validate` 성공<br/>- State 암호화 기능 향후 활용 가능 |
 | **영향받는 컴포넌트** | 모든 .tf 파일 (변경 없음), 문서, CI/CD 파이프라인 (명령어만 변경) |
 
+### ADR-009: 2단계 워크플로우 (Infrastructure vs Addon 분리)
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **일자** | 2026-02-20 |
+| **컨텍스트** | Terraform main.tf에서 addon 설치 스크립트 경로 불일치 (/scripts/ vs /addons/scripts/) 및 인프라와 addon의 강결합 문제 |
+| **결정** | Terraform과 Addon 설치를 2단계 워크플로우로 분리 |
+| **근거** | - **모듈성**: Infrastructure(VM, K8s) vs Addon(Platform Services) 명확한 책임 분리<br/>- **선택적 설치**: 필요한 addon만 설치 가능<br/>- **디버깅 용이성**: 실패 시 특정 단계만 재시도<br/>- **유지보수성**: 스크립트 경로 관리 단순화 |
+| **구현** | - **Phase 1 (tofu apply)**: VM 생성, Kubernetes 클러스터 초기화, kubeconfig 병합 (10-15분)<br/>- **Phase 2 (bash addons/install.sh --all)**: 전체 addon 설치 (20-30분)<br/>- main.tf의 addon provisioner 블록 주석 처리 (line 115-613) |
+| **트레이드오프** | 2단계 프로세스로 인한 수동 개입 필요 (문서화로 완화) |
+| **완화책** | - README.md에 2단계 프로세스 명시<br/>- addons/install.sh 오케스트레이터 제공<br/>- 카테고리별 설치 지원 (--category networking/observability/security) |
+| **결과** | - 명확한 워크플로우<br/>- 재시도 및 부분 설치 가능<br/>- Terraform 실행 시간 단축 (40분 → 15분) |
+| **영향받는 컴포넌트** | main.tf (provisioner 주석 처리), README.md (설치 가이드 업데이트), addons/install.sh |
+
+### ADR-010: Namespace 통합 전략 (monitoring vs observability)
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **일자** | 2026-02-20 |
+| **컨텍스트** | 관찰성 스택의 네임스페이스가 일관성 없이 분산 (Prometheus-monitoring, Loki-loki, Thanos-thanos 등) |
+| **결정** | 네임스페이스를 용도별로 통합: **monitoring** (메트릭 수집/시각화) vs **observability** (장기 보관/분석) |
+| **근거** | - **명확한 책임 분리**: 메트릭 수집(Prometheus, Grafana) vs 장기 보관(Thanos, Loki, Tempo)<br/>- **장애 도메인 격리**: monitoring 장애 시에도 observability 데이터 보존<br/>- **리소스 관리**: 네임스페이스별 ResourceQuota 적용 용이<br/>- **RBAC 간소화**: 네임스페이스 기반 접근 제어 |
+| **구현** | - **monitoring**: Prometheus Stack, Grafana, AlertManager<br/>- **observability**: Thanos, Loki, Tempo, OpenTelemetry Collector<br/>- **security**: Kyverno, Falco, Tetragon<br/>- **backup**: MinIO, Velero |
+| **트레이드오프** | 기존 스크립트 네임스페이스 참조 수정 필요 |
+| **완화책** | - verify.sh 업데이트로 자동 검증<br/>- 각 install 스크립트 네임스페이스 참조 수정<br/>- Kyverno 정책 제외 목록에 observability/security/backup 추가 |
+| **결과** | - 일관된 네임스페이스 구조<br/>- 명확한 서비스 경계<br/>- 장애 격리 향상 |
+| **영향받는 컴포넌트** | install-tempo.sh, install-loki.sh, install-thanos.sh, install-otel-collector.sh, verify.sh, install-kyverno.sh |
+
+### ADR-011: *.bocopile.io 도메인 통합 접근
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **일자** | 2026-02-20 |
+| **컨텍스트** | 각 서비스별 port-forward가 필요하여 접근이 번거로움 (13개 서비스 × 개별 포트) |
+| **결정** | Istio Ingress Gateway를 통한 단일 도메인 기반 접근 구성 |
+| **근거** | - **사용성**: port-forward 불필요, 브라우저에서 직접 접근<br/>- **단일 진입점**: 1개 IP로 모든 서비스 접근<br/>- **자동 라우팅**: VirtualService 기반 도메인별 라우팅<br/>- **SSL/TLS 지원**: cert-manager + Vault PKI 통합 가능 |
+| **구현** | - **Gateway**: istio-gateway-bocopile.yaml (*.bocopile.io)<br/>- **VirtualService**: 13개 서비스 라우팅 (grafana, prometheus, argocd, vault, minio 등)<br/>- **자동화**: scripts/apply-bocopile-gateway.sh, scripts/update-hosts-bocopile.sh<br/>- **Mac /etc/hosts**: LoadBalancer IP → *.bocopile.io 매핑 |
+| **트레이드오프** | Istio Ingress Gateway 의존성 추가 |
+| **완화책** | - port-forward 방식도 병행 지원<br/>- LoadBalancer IP 자동 조회 스크립트 제공 |
+| **결과** | - 편리한 서비스 접근<br/>- 프로덕션 환경과 유사한 설정<br/>- SSL/TLS 적용 기반 마련 |
+| **영향받는 컴포넌트** | templates/istio-gateway-bocopile.yaml, templates/virtualservices-bocopile.yaml, scripts/ |
+
 ### 아키텍처 불변 조건 (Architecture Contract)
 
 > 아래 조건은 구현이 변경되더라도 **반드시 유지**되어야 하는 아키텍처 보장 사항입니다.
@@ -186,6 +231,9 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | **C6** | Cilium은 **Tunneling(VXLAN)** 모드로 동작 | ADR-005 |
 | **C7** | Istio Gateway 인증서는 **cert-manager + Vault PKI**로 자동 발급/갱신 | ADR-007 |
 | **C8** | IaC는 **OpenTofu**를 사용하며 Terraform 호환성 유지 | ADR-008 |
+| **C9** | 인프라 프로비저닝(Terraform)과 Addon 설치는 **2단계 분리** 워크플로우 | ADR-009 |
+| **C10** | 관찰성 스택은 **monitoring**(수집) vs **observability**(보관) 네임스페이스로 분리 | ADR-010 |
+| **C11** | 모든 WebUI 서비스는 **\*.bocopile.io** 도메인으로 접근 가능 | ADR-011 |
 
 ---
 
@@ -985,7 +1033,7 @@ flowchart TB
     end
 
     subgraph Storage["백업 저장소"]
-        minio["MinIO<br/>(mgmt, 50Gi)"]
+        minio["MinIO<br/>(mgmt, 15Gi)"]
     end
 
     mgmt --> v1 --> minio
@@ -1008,21 +1056,21 @@ flowchart TB
 | | Multipass 데몬 | 0.5 GB |
 | | IDE, 브라우저, Terraform CLI 등 | 8.5 GB |
 | **호스트 소계** | | **14.0 GB** |
-| **VM** | 6개 Multipass VM | **26.0 GB** |
-| **합계** | | **40.0 GB** |
-| **전체 여유** | | **24.0 GB** |
+| **VM** | 6개 Multipass VM | **28.0 GB** |
+| **합계** | | **42.0 GB** |
+| **전체 여유** | | **22.0 GB** |
 
 ### 11.2 VM 할당
 
 | 클러스터 | 노드 | RAM | CPU | 디스크 |
 |---------|------|-----|-----|--------|
 | mgmt | mgmt-cp | 4GB | 2 | 40GB |
-| mgmt | mgmt-worker-0 | 8GB | 2 | 60GB |
+| mgmt | mgmt-worker-0 | **10GB** | 2 | 60GB |
 | app1 | app1-cp | 3GB | 2 | 30GB |
 | app1 | app1-worker-0 | 4GB | 2 | 40GB |
 | app2 | app2-cp | 3GB | 2 | 30GB |
 | app2 | app2-worker-0 | 4GB | 2 | 40GB |
-| **합계** | | **26GB** | **12** | **240GB** |
+| **합계** | | **28GB** | **12** | **240GB** |
 
 ### 11.3 VM 내부 실사용 상세 (병목 분석)
 
@@ -1041,7 +1089,7 @@ flowchart TB
 | MetalLB speaker | 30 MB |
 | **소계 / 여유** | **~1.7 GB / ~2.3 GB** |
 
-#### mgmt-worker-0 (8GB) -- 병목 노드
+#### mgmt-worker-0 (10GB) -- 플랫폼 서비스 노드
 
 | 구성요소 | 카테고리 | RAM |
 |----------|----------|-----|
@@ -1076,9 +1124,9 @@ flowchart TB
 | Velero + node-agent | 백업 | 256 MB |
 | **소계 (AI 도구 포함)** | | **~9.0 GB** |
 | **소계 (AI 도구 제외)** | | **~5.9 GB** |
-| **여유 (현재 8GB 기준)** | | **⚠️ 부족 (-1.0 GB)** |
+| **여유 (현재 10GB 기준)** | | **✅ 충분 (+1.0 GB)** |
 
-> **권장 조치**: mgmt-worker-0를 **8GB → 10GB**로 증설 필요 (AI 도구 사용 시)
+> **최적화 적용**: mgmt-worker-0를 8GB → 10GB로 증설 완료 (2026-02-20, ADR-009)
 
 #### app1-cp / app2-cp (각 3GB)
 
@@ -1130,9 +1178,11 @@ flowchart TB
 
 ---
 
-## 13. Terraform 파이프라인
+## 13. 설치 워크플로우 (2단계 프로세스)
 
-### 13.1 전체 의존성 그래프
+> **ADR-009**: Terraform과 Addon 설치를 분리하여 모듈성과 재시도 용이성 확보
+
+### 13.1 Phase 1: Infrastructure (Terraform)
 
 ```
 cloud_init ─→ vm(6개) ─→ init_mgmt ─→ join_mgmt ──────┐
@@ -1141,36 +1191,77 @@ cloud_init ─→ vm(6개) ─→ init_mgmt ─→ join_mgmt ──────�
                                                         │
                                               merge_kubeconfigs
                                                         │
-                                                install_cilium
-                                               ┌────────┼────────┐
-                                     install_tetragon   │   install_gateway_api
-                                               │  install_metallb
-                                               │        │
-                                               │  setup_clustermesh
-                                     ┌─────────┼────────┼─────────────┐
-                              install_cert_manager  install_kyverno  install_falco
-                                     │               (app only)     (app only)
-                              install_platform_addons
-                              ┌──────┼──────┬──────┬─────────┐
-                       install_k8sgpt │  install_thanos  install_argocd  install_vault
-                              │       │      │                │
-                       (LocalAI +     │  install_prometheus_stack  install_eso
-                        K8sGPT CR)    │      │
-                                      │  install_loki
-                                      │      │
-                              install_holmesgpt
-                           (Prometheus/Loki/Tempo 통합)
-                                      │
-                              install_minio
-                                      │
-                              install_velero
-                                      │
-                          install_prometheus_agent
-
-[선택적]  install_botkube (수동, Slack 토큰 필요)
+                                            ✅ Infrastructure Ready
+                                            (VM, K8s, kubeconfig)
 ```
 
-### 13.2 설치 스크립트 목록
+**실행**: `tofu apply`
+**소요 시간**: 10-15분
+**결과물**:
+- 6개 VM 생성 (Multipass)
+- 3개 Kubernetes 클러스터 (kubeadm)
+- `~/kubeconfig-multi` (통합 kubeconfig)
+- `generated/clusters.json`
+
+### 13.2 Phase 2: Addon Installation (Shell Orchestrator)
+
+```
+                              bash addons/install.sh --all
+                                         │
+                        ┌────────────────┼────────────────┐
+                        │                │                │
+                   [Networking]    [PKI/Secrets]   [Observability]
+                        │                │                │
+                install_cilium     install_cert_manager   install_prometheus_stack
+                        │                │                │
+                install_metallb    install_vault         install_thanos
+                        │                │                │
+                install_tetragon   setup_vault_pki       install_loki
+                        │                │                │
+                install_gateway_api  install_eso         install_tempo
+                        │                │                │
+                setup_clustermesh       │           install_otel_collector
+                                        │
+                        ┌───────────────┼───────────────┐
+                        │               │               │
+                  [Service Mesh]   [Security]     [Platform]
+                        │               │               │
+                  install_istio   install_kyverno   install_argocd
+                        │               │               │
+                  install_kiali   install_falco     install_k8sgpt
+                                        │               │
+                                        │         install_holmesgpt
+                                        │               │
+                                        │         install_minio
+                                        │               │
+                                        │         install_velero
+                                        │               │
+                                  install_platform_addons
+                                  (Trivy/OpenCost/VPA/
+                                   Goldilocks/Chaos Mesh)
+```
+
+**실행**:
+```bash
+# 전체 설치
+bash addons/install.sh --all
+
+# 카테고리별 설치
+bash addons/install.sh --category networking
+bash addons/install.sh --category observability
+bash addons/install.sh --category security
+
+# 개별 설치
+bash addons/install.sh vault argocd prometheus-stack
+```
+
+**소요 시간**: 20-30분
+**특징**:
+- 선택적 설치 가능
+- 실패 시 개별 재시도
+- 의존성 순서 자동 관리 (INSTALL_ORDER 배열)
+
+### 13.3 설치 스크립트 목록
 
 | # | 스크립트 | 대상 | 의존성 |
 |---|---------|------|--------|
