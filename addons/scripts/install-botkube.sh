@@ -9,16 +9,13 @@ set -euo pipefail
 # - RBAC 및 승인 플로우
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 
-if [[ ! -f "${KUBECONFIG_MULTI}" ]]; then
-  echo "ERROR: kubeconfig-multi not found at ${GENERATED_DIR}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 echo "=== Installing Botkube on mgmt cluster ==="
 
@@ -70,8 +67,7 @@ fi
 # =============================================================================
 echo ""
 echo "[1/3] Adding Botkube Helm repository..."
-helm repo add botkube https://charts.botkube.io 2>/dev/null || true
-helm repo update botkube
+add_helm_repo "botkube" "${HELM_REPO_BOTKUBE}"
 
 # =============================================================================
 # 2. Botkube 설치
@@ -80,7 +76,7 @@ echo "[2/3] Installing Botkube..."
 
 helm upgrade --install botkube botkube/botkube \
   --namespace aiops --create-namespace \
-  ${KC} \
+  --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set settings.clusterName=mgmt \
   --set communications.default-group.slack.enabled=true \
   --set communications.default-group.slack.token="${SLACK_TOKEN}" \
@@ -109,7 +105,7 @@ echo "Botkube installed."
 echo "[3/3] Verifying Botkube installation..."
 
 # Pod 확인
-kubectl ${KC} -n aiops wait --for=condition=ready --timeout=120s pod -l app.kubernetes.io/name=botkube
+$(get_kubectl_cmd mgmt) -n aiops wait --for=condition=ready --timeout=120s pod -l app.kubernetes.io/name=botkube
 
 echo ""
 echo "Botkube is ready!"
@@ -153,7 +149,7 @@ echo "  You: @botkube restart deployment my-app -n production"
 echo "  Botkube: ⚠️ Approval required. React with ✅ to approve."
 echo ""
 echo "Configure approvers:"
-echo "  kubectl ${KC} -n aiops edit configmap botkube-config"
+echo "  $(get_kubectl_cmd mgmt) -n aiops edit configmap botkube-config"
 echo ""
 echo "View Botkube logs:"
-echo "  kubectl ${KC} -n aiops logs deployment/botkube -f"
+echo "  $(get_kubectl_cmd mgmt) -n aiops logs deployment/botkube -f"

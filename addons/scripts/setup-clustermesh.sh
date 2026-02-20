@@ -2,14 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 echo "=== Setting up Cilium Cluster Mesh ==="
 

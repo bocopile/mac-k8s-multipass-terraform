@@ -9,16 +9,13 @@ set -euo pipefail
 # - cert-manager용 Kubernetes Auth 설정
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 
-if [[ ! -f "${KUBECONFIG_MULTI}" ]]; then
-  echo "ERROR: kubeconfig-multi not found at ${GENERATED_DIR}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 # Vault root token 확인
 VAULT_ROOT_TOKEN=""
@@ -36,7 +33,7 @@ fi
 
 # Vault pod 상태 확인
 echo "Checking Vault pod status..."
-if ! kubectl ${KC_KUBECTL} -n vault get pod vault-0 &>/dev/null; then
+if ! $(get_kubectl_cmd mgmt) -n vault get pod vault-0 &>/dev/null; then
   echo "ERROR: Vault pod 'vault-0' not found"
   echo "Please ensure Vault is installed and running"
   exit 1
@@ -50,13 +47,13 @@ echo "=== Setting up Vault PKI for Istio Gateway certificates ==="
 echo ""
 echo "[1/5] Enabling PKI secrets engine..."
 
-kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+$(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault secrets enable -path=pki pki 2>/dev/null || \
   echo 'PKI engine already enabled'
 "
 
 # Max lease TTL 설정 (1년)
-kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+$(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault secrets tune -max-lease-ttl=8760h pki
 "
 
@@ -67,13 +64,13 @@ echo ""
 echo "[2/5] Generating Root CA..."
 
 # Root CA가 이미 존재하는지 확인
-CA_CERT=$(kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+CA_CERT=$($(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault read -field=certificate pki/cert/ca 2>/dev/null || true
 ")
 
 if [[ -z "${CA_CERT}" ]]; then
   echo "Creating new Root CA..."
-  kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+  $(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
     VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault write pki/root/generate/internal \
       common_name='K8s Multi-Cluster Root CA' \
       issuer_name='root-ca' \
@@ -84,7 +81,7 @@ else
 fi
 
 # CRL 및 Issuing 인증서 엔드포인트 설정
-kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+$(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault write pki/config/urls \
     issuing_certificates='http://vault.vault.svc.cluster.local:8200/v1/pki/ca' \
     crl_distribution_points='http://vault.vault.svc.cluster.local:8200/v1/pki/crl'
@@ -100,7 +97,7 @@ echo "[3/5] Creating PKI role for Istio Gateway..."
 # 실제 사용할 도메인으로 변경 필요
 ALLOWED_DOMAINS="*.local,*.example.com,*.cluster.local,localhost"
 
-kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+$(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault write pki/roles/istio-gateway \
     allowed_domains='${ALLOWED_DOMAINS}' \
     allow_subdomains=true \
@@ -121,7 +118,7 @@ echo "PKI role 'istio-gateway' created with allowed domains: ${ALLOWED_DOMAINS}"
 echo ""
 echo "[4/5] Creating Vault policy for cert-manager..."
 
-kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+$(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault policy write cert-manager-pki - <<EOF
 # PKI 인증서 발급 권한
 path \"pki/sign/istio-gateway\" {
@@ -146,26 +143,26 @@ echo ""
 echo "[5/5] Configuring Kubernetes auth for cert-manager..."
 
 # Kubernetes Auth가 활성화되어 있는지 확인
-AUTH_ENABLED=$(kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+AUTH_ENABLED=$($(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault auth list -format=json 2>/dev/null | jq -r '.\"kubernetes/\"' || echo 'null'
 ")
 
 if [[ "${AUTH_ENABLED}" == "null" ]]; then
   echo "Enabling Kubernetes auth..."
-  kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+  $(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
     VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault auth enable kubernetes
   "
 fi
 
 # Kubernetes API 서버 주소 설정
 echo "Configuring Kubernetes auth..."
-kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+$(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault write auth/kubernetes/config \
     kubernetes_host='https://kubernetes.default.svc:443'
 "
 
 # cert-manager용 Role 생성
-kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+$(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault write auth/kubernetes/role/cert-manager \
     bound_service_account_names=cert-manager \
     bound_service_account_namespaces=cert-manager \
@@ -179,7 +176,7 @@ kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
 echo ""
 echo "=== Extracting CA certificate for cert-manager ==="
 
-CA_CERT_B64=$(kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c "
+CA_CERT_B64=$($(get_kubectl_cmd mgmt) -n vault exec vault-0 -- sh -c "
   VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault read -field=certificate pki/cert/ca | base64 -w0
 ")
 

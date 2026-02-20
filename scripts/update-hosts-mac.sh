@@ -5,15 +5,13 @@ set -euo pipefail
 # LoadBalancer IP를 조회하여 /etc/hosts에 자동 추가
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 
-if [[ ! -f "${KUBECONFIG_MULTI}" ]]; then
-  echo "ERROR: kubeconfig-multi not found at ${GENERATED_DIR}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/lib/common.sh"
+source "${SCRIPT_DIR}/lib/constants.sh"
 
-MGMT_CONTEXT="kubernetes-admin@mgmt"
+# Setup
+setup_common_vars
 
 echo "========================================="
 echo "Mac /etc/hosts Auto-Update Script"
@@ -32,23 +30,23 @@ echo "Querying LoadBalancer IPs from mgmt cluster..."
 echo ""
 
 # MinIO IP
-MINIO_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+MINIO_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n backup minio -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
 # Vault IP
-VAULT_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+VAULT_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n vault vault-ui-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
 # Thanos IP
-THANOS_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+THANOS_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n observability thanos-receive -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
 # Loki IP
-LOKI_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+LOKI_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n observability loki-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
 # Istio Gateway IP (mgmt)
-GATEWAY_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+GATEWAY_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n istio-system istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
 # 조회 결과 출력

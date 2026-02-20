@@ -8,16 +8,13 @@ set -euo pipefail
 # - 클러스터 문제 자동 진단
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 
-if [[ ! -f "${KUBECONFIG_MULTI}" ]]; then
-  echo "ERROR: kubeconfig-multi not found at ${GENERATED_DIR}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 echo "=== Configuring K8sGPT on mgmt cluster ==="
 
@@ -26,7 +23,7 @@ echo "=== Configuring K8sGPT on mgmt cluster ==="
 # =============================================================================
 echo "[1/3] Checking K8sGPT Operator..."
 
-if ! kubectl ${KC} -n aiops get deployment k8sgpt-operator-controller-manager &>/dev/null; then
+if ! $(get_kubectl_cmd mgmt) -n aiops get deployment k8sgpt-operator-controller-manager &>/dev/null; then
   echo "ERROR: K8sGPT Operator not found. Run install-platform-addons.sh first."
   exit 1
 fi
@@ -39,7 +36,7 @@ echo "K8sGPT Operator found."
 echo "[2/3] Installing LocalAI (OpenSource LLM backend)..."
 
 # LocalAI 설치 (경량 LLM, CPU 전용)
-kubectl ${KC} apply -f - <<EOF
+$(get_kubectl_cmd mgmt) apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -111,12 +108,12 @@ spec:
 EOF
 
 echo "Waiting for LocalAI to be ready..."
-kubectl ${KC} -n aiops wait --for=condition=available --timeout=180s deployment/localai || \
+$(get_kubectl_cmd mgmt) -n aiops wait --for=condition=available --timeout=180s deployment/localai || \
   echo "WARNING: LocalAI deployment not ready yet, continuing..."
 
 # LocalAI에 모델 다운로드 (경량 모델)
 echo "Downloading AI model for LocalAI..."
-kubectl ${KC} -n aiops exec -i deployment/localai -- sh -c "
+$(get_kubectl_cmd mgmt) -n aiops exec -i deployment/localai -- sh -c "
   wget -O /models/ggml-gpt4all-j.bin https://gpt4all.io/models/ggml-gpt4all-j.bin || echo 'Model download failed, will retry later'
 " || echo "WARNING: Model download failed, K8sGPT will use fallback"
 
@@ -125,7 +122,7 @@ kubectl ${KC} -n aiops exec -i deployment/localai -- sh -c "
 # =============================================================================
 echo "[3/3] Creating K8sGPT Custom Resource..."
 
-kubectl ${KC} apply -f - <<EOF
+$(get_kubectl_cmd mgmt) apply -f - <<EOF
 apiVersion: core.k8sgpt.ai/v1alpha1
 kind: K8sGPT
 metadata:
@@ -174,7 +171,7 @@ sleep 10
 # K8sGPT 결과 확인
 echo ""
 echo "K8sGPT analysis results:"
-kubectl ${KC} -n aiops get results --no-headers 2>/dev/null | head -5 || echo "No issues found (good!)"
+$(get_kubectl_cmd mgmt) -n aiops get results --no-headers 2>/dev/null | head -5 || echo "No issues found (good!)"
 
 # =============================================================================
 # 사용 가이드
@@ -189,15 +186,15 @@ echo "  [OK] K8sGPT CR         - AI analysis enabled"
 echo "================================================================="
 echo ""
 echo "View analysis results:"
-echo "  kubectl ${KC} -n aiops get results"
-echo "  kubectl ${KC} -n aiops describe result <result-name>"
+echo "  $(get_kubectl_cmd mgmt) -n aiops get results"
+echo "  $(get_kubectl_cmd mgmt) -n aiops describe result <result-name>"
 echo ""
 echo "Example result:"
 echo "  NAME                      KIND   NAMESPACE   AGE"
 echo "  default-pod-nginx-error   Pod    default     2m"
 echo ""
 echo "Trigger manual analysis:"
-echo "  kubectl ${KC} -n aiops annotate k8sgpt k8sgpt core.k8sgpt.ai/enabled=true --overwrite"
+echo "  $(get_kubectl_cmd mgmt) -n aiops annotate k8sgpt k8sgpt core.k8sgpt.ai/enabled=true --overwrite"
 echo ""
 echo "Note: LocalAI is CPU-only and may be slow. For better performance,"
 echo "      consider using external API (OpenAI, Gemini) by updating K8sGPT CR."

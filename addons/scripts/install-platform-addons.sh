@@ -10,25 +10,19 @@ set -euo pipefail
 #   - Chaos Mesh (장애 주입 테스트)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 
-# mgmt 클러스터 컨텍스트
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
-KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 # =============================================================================
 # 0. local-path-retain StorageClass 생성 (§6.2)
 # =============================================================================
 echo "=== Creating local-path-retain StorageClass on mgmt ==="
-kubectl ${KC_KUBECTL} apply -f - <<'EOF'
+$(get_kubectl_cmd mgmt) apply -f - <<'EOF'
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -57,7 +51,7 @@ echo "=== [1/5] Installing Trivy Operator ==="
 
 helm upgrade --install trivy-operator aquasecurity/trivy-operator \
   --namespace trivy-system --create-namespace \
-  ${KC} \
+  --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set trivy.ignoreUnfixed=true \
   --set operator.scanJobsConcurrentLimit=2 \
   --set operator.metricsVulnIdEnabled=true \
@@ -65,7 +59,7 @@ helm upgrade --install trivy-operator aquasecurity/trivy-operator \
   --wait --timeout 180s
 
 echo "Trivy Operator installed. VulnerabilityReports:"
-kubectl ${KC_KUBECTL} -n trivy-system get deploy trivy-operator -o wide
+$(get_kubectl_cmd mgmt) -n trivy-system get deploy trivy-operator -o wide
 
 # =============================================================================
 # 2. K8sGPT Operator (~128MB)
@@ -75,7 +69,7 @@ echo "=== [2/5] Installing K8sGPT Operator ==="
 
 helm upgrade --install k8sgpt-operator k8sgpt/k8sgpt-operator \
   --namespace k8sgpt --create-namespace \
-  ${KC} \
+  --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set serviceMonitor.enabled=true \
   --wait --timeout 120s
 
@@ -108,7 +102,7 @@ PROM_ENDPOINT="http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.lo
 
 helm upgrade --install opencost opencost/opencost \
   --namespace opencost --create-namespace \
-  ${KC} \
+  --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set opencost.prometheus.internal.serviceName="kube-prometheus-stack-prometheus" \
   --set opencost.prometheus.internal.namespaceName="monitoring" \
   --set opencost.prometheus.internal.port=9090 \
@@ -117,7 +111,7 @@ helm upgrade --install opencost opencost/opencost \
   --wait --timeout 120s
 
 echo "OpenCost installed. UI available via port-forward:"
-echo "  kubectl ${KC_KUBECTL} -n opencost port-forward svc/opencost 9090:9090"
+echo "  $(get_kubectl_cmd mgmt) -n opencost port-forward svc/opencost 9090:9090"
 
 # =============================================================================
 # 4. VPA + Goldilocks (~300MB)
@@ -128,7 +122,7 @@ echo "=== [4/5] Installing VPA + Goldilocks ==="
 # VPA (Vertical Pod Autoscaler)
 helm upgrade --install vpa fairwinds-stable/vpa \
   --namespace vpa --create-namespace \
-  ${KC} \
+  --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set recommender.enabled=true \
   --set updater.enabled=false \
   --set admissionController.enabled=false \
@@ -139,16 +133,16 @@ echo "VPA installed (recommender only, updater/admission disabled)."
 # Goldilocks
 helm upgrade --install goldilocks fairwinds-stable/goldilocks \
   --namespace goldilocks --create-namespace \
-  ${KC} \
+  --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set dashboard.enabled=true \
   --set dashboard.service.type=ClusterIP \
   --wait --timeout 120s
 
 echo "Goldilocks installed. Dashboard:"
-echo "  kubectl ${KC_KUBECTL} -n goldilocks port-forward svc/goldilocks-dashboard 8080:80"
+echo "  $(get_kubectl_cmd mgmt) -n goldilocks port-forward svc/goldilocks-dashboard 8080:80"
 echo ""
 echo "NOTE: 네임스페이스에 라벨 추가로 Goldilocks 활성화:"
-echo "  kubectl ${KC_KUBECTL} label ns <namespace> goldilocks.fairwinds.com/enabled=true"
+echo "  $(get_kubectl_cmd mgmt) label ns <namespace> goldilocks.fairwinds.com/enabled=true"
 
 # =============================================================================
 # 5. Chaos Mesh (~200MB)
@@ -158,14 +152,14 @@ echo "=== [5/5] Installing Chaos Mesh ==="
 
 helm upgrade --install chaos-mesh chaos-mesh/chaos-mesh \
   --namespace chaos-mesh --create-namespace \
-  ${KC} \
+  --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set dashboard.securityMode=false \
   --set dashboard.service.type=ClusterIP \
   --set controllerManager.enableFilterNamespace=true \
   --wait --timeout 180s
 
 echo "Chaos Mesh installed. Dashboard:"
-echo "  kubectl ${KC_KUBECTL} -n chaos-mesh port-forward svc/chaos-dashboard 2333:2333"
+echo "  $(get_kubectl_cmd mgmt) -n chaos-mesh port-forward svc/chaos-dashboard 2333:2333"
 
 # =============================================================================
 # 설치 요약

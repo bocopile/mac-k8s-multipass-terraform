@@ -5,24 +5,21 @@ set -euo pipefail
 # Usage: sudo bash scripts/update-hosts-bocopile.sh
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 
-if [[ ! -f "${KUBECONFIG_MULTI}" ]]; then
-  echo "ERROR: kubeconfig-multi not found at ${GENERATED_DIR}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/lib/common.sh"
+source "${SCRIPT_DIR}/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 if [[ $EUID -ne 0 ]]; then
   echo "ERROR: This script must be run as root (use sudo)"
   exit 1
 fi
 
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
-
 # Get Istio Ingress Gateway IP
-INGRESS_IP=$(kubectl ${KC_KUBECTL} -n istio-system \
+INGRESS_IP=$($(get_kubectl_cmd mgmt) -n istio-system \
   get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
 if [[ -z "${INGRESS_IP}" ]]; then

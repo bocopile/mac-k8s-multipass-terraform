@@ -9,16 +9,13 @@ set -euo pipefail
 # - 근본 원인 자동 분석 (RCA)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 
-if [[ ! -f "${KUBECONFIG_MULTI}" ]]; then
-  echo "ERROR: kubeconfig-multi not found at ${GENERATED_DIR}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 echo "=== Installing HolmesGPT (Robusta) on mgmt cluster ==="
 
@@ -26,8 +23,7 @@ echo "=== Installing HolmesGPT (Robusta) on mgmt cluster ==="
 # 1. Helm Repo 추가
 # =============================================================================
 echo "[1/4] Adding Robusta Helm repository..."
-helm repo add robusta https://robusta-charts.storage.googleapis.com 2>/dev/null || true
-helm repo update robusta
+add_helm_repo "robusta" "${HELM_REPO_ROBUSTA}"
 
 # =============================================================================
 # 2. Robusta + HolmesGPT 설치
@@ -40,7 +36,7 @@ echo "[2/4] Installing Robusta with HolmesGPT..."
 
 helm upgrade --install robusta robusta/robusta \
   --namespace aiops --create-namespace \
-  ${KC} \
+  --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set clusterName=mgmt \
   --set playbookRepos.robusta_playbooks.url=https://github.com/robusta-dev/robusta \
   --set enablePrometheusStack=false \
@@ -60,7 +56,7 @@ echo "Robusta installed."
 echo "[3/4] Configuring Prometheus Alertmanager integration..."
 
 # Alertmanager에 Robusta webhook 추가
-kubectl ${KC} -n monitoring patch alertmanagerconfig \
+$(get_kubectl_cmd mgmt) -n monitoring patch alertmanagerconfig \
   kube-prometheus-stack-alertmanager-config --type=merge -p='
 {
   "spec": {
@@ -103,7 +99,7 @@ kubectl ${KC} -n monitoring patch alertmanagerconfig \
 echo "[4/4] Configuring HolmesGPT AI analysis..."
 
 # Robusta Playbook 설정 (AI 자동 조사)
-kubectl ${KC} -n aiops create configmap holmes-config --from-literal=config.yaml="
+$(get_kubectl_cmd mgmt) -n aiops create configmap holmes-config --from-literal=config.yaml="
 globalConfig:
   cluster_name: mgmt
 
@@ -147,7 +143,7 @@ customPlaybooks:
     - create_finding:
         title: 'HolmesGPT Analysis'
         aggregation_key: 'holmes'
-" --dry-run=client -o yaml | kubectl ${KC} apply -f - || echo "WARNING: Failed to create holmes-config"
+" --dry-run=client -o yaml | $(get_kubectl_cmd mgmt) apply -f - || echo "WARNING: Failed to create holmes-config"
 
 # =============================================================================
 # 설치 요약
@@ -167,16 +163,16 @@ echo "  ✓ Loki:       loki.monitoring.svc:3100"
 echo "  ✓ Tempo:      tempo.monitoring.svc:3100"
 echo ""
 echo "View Robusta analysis:"
-echo "  kubectl ${KC} -n aiops logs deployment/robusta-runner -f"
+echo "  $(get_kubectl_cmd mgmt) -n aiops logs deployment/robusta-runner -f"
 echo ""
 echo "Test HolmesGPT:"
 echo "  1. Trigger a test alert:"
-echo "     kubectl ${KC} run test-crash --image=busybox --restart=Never -- sh -c 'exit 1'"
+echo "     $(get_kubectl_cmd mgmt) run test-crash --image=busybox --restart=Never -- sh -c 'exit 1'"
 echo ""
 echo "  2. Wait for alert (may take 1-2 minutes)"
 echo ""
 echo "  3. Check HolmesGPT analysis:"
-echo "     kubectl ${KC} -n aiops logs deployment/robusta-runner | grep -A 20 'holmes'"
+echo "     $(get_kubectl_cmd mgmt) -n aiops logs deployment/robusta-runner | grep -A 20 'holmes'"
 echo ""
 echo "Note: HolmesGPT uses LocalAI (CPU-only) which may be slow."
 echo "      For production, consider using external LLM API (OpenAI, Gemini)."

@@ -4,15 +4,13 @@ set -euo pipefail
 # LoadBalancer IP 조회 스크립트
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 
-if [[ ! -f "${KUBECONFIG_MULTI}" ]]; then
-  echo "ERROR: kubeconfig-multi not found"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/lib/common.sh"
+source "${SCRIPT_DIR}/lib/constants.sh"
 
-MGMT_CONTEXT="kubernetes-admin@mgmt"
+# Setup
+setup_common_vars
 
 echo "========================================="
 echo "LoadBalancer IPs (mgmt cluster)"
@@ -21,7 +19,7 @@ echo ""
 
 # MinIO
 echo "MinIO Object Storage:"
-MINIO_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+MINIO_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n backup minio -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "NOT FOUND")
 echo "  IP:      ${MINIO_IP}"
 if [[ "${MINIO_IP}" != "NOT FOUND" ]]; then
@@ -32,7 +30,7 @@ echo ""
 
 # Vault
 echo "Vault Secret Management:"
-VAULT_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+VAULT_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n vault vault-ui-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "NOT FOUND")
 echo "  IP:      ${VAULT_IP}"
 if [[ "${VAULT_IP}" != "NOT FOUND" ]]; then
@@ -42,7 +40,7 @@ echo ""
 
 # Thanos
 echo "Thanos Metrics:"
-THANOS_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+THANOS_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n observability thanos-receive -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "NOT FOUND")
 echo "  IP:       ${THANOS_IP}"
 if [[ "${THANOS_IP}" != "NOT FOUND" ]]; then
@@ -52,7 +50,7 @@ echo ""
 
 # Loki
 echo "Loki Logs:"
-LOKI_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+LOKI_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n observability loki-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "NOT FOUND")
 echo "  IP:       ${LOKI_IP}"
 if [[ "${LOKI_IP}" != "NOT FOUND" ]]; then
@@ -62,7 +60,7 @@ echo ""
 
 # Istio Gateway
 echo "Istio Ingress Gateway:"
-GATEWAY_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
+GATEWAY_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n istio-system istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "NOT FOUND")
 echo "  IP:    ${GATEWAY_IP}"
 if [[ "${GATEWAY_IP}" != "NOT FOUND" ]]; then
