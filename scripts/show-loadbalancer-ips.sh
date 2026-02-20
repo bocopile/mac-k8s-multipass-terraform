@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # LoadBalancer IP 조회 스크립트
 

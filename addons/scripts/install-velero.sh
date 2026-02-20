@@ -11,6 +11,9 @@ GENERATED_DIR="${SCRIPT_DIR}/../generated"
 KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
+# Load credential management library
+source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
+
 if [[ ! -f "${CLUSTERS_JSON}" ]]; then
   echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
   exit 1
@@ -39,6 +42,12 @@ fi
 S3_URL="http://${MINIO_IP}:9000"
 echo "MinIO S3 endpoint: ${S3_URL}"
 
+# Load MinIO credentials
+load_credentials || {
+  echo "ERROR: Credentials file not found. Run install-minio.sh first."
+  exit 1
+}
+
 # Helm repo 추가
 helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts 2>/dev/null || true
 helm repo update vmware-tanzu
@@ -55,10 +64,10 @@ for CLUSTER in ${CLUSTERS}; do
   # MinIO 자격증명 Secret 생성
   kubectl ${KC_KUBECTL} create namespace backup 2>/dev/null || true
   kubectl ${KC_KUBECTL} -n backup create secret generic velero-s3-credentials \
-    --from-literal=aws='[default]
-aws_access_key_id=minioadmin
-aws_secret_access_key=minioadmin123
-' --dry-run=client -o yaml | kubectl ${KC_KUBECTL} apply -f -
+    --from-literal=aws="[default]
+aws_access_key_id=${MINIO_ROOT_USER}
+aws_secret_access_key=${MINIO_ROOT_PASSWORD}
+" --dry-run=client -o yaml | kubectl ${KC_KUBECTL} apply -f -
 
   helm upgrade --install velero vmware-tanzu/velero \
     --version "${VELERO_VERSION}" \

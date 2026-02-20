@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # 모든 주요 WebUI 서비스를 한 번에 port-forward
 # Ctrl+C로 모두 종료

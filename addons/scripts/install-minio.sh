@@ -9,6 +9,9 @@ GENERATED_DIR="${SCRIPT_DIR}/../generated"
 KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
+# Load credential management library
+source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
+
 if [[ ! -f "${CLUSTERS_JSON}" ]]; then
   echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
   exit 1
@@ -17,6 +20,12 @@ fi
 MGMT_CONTEXT="kubernetes-admin@mgmt"
 KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
 KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+
+# Initialize and get MinIO credentials
+init_credentials
+load_credentials || true
+get_minio_credentials > /dev/null
+source "${CREDENTIALS_FILE}"
 
 # Helm repo 추가
 helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
@@ -33,8 +42,8 @@ echo "=== Installing MinIO on mgmt cluster (Demo Environment) ==="
 helm upgrade --install minio bitnami/minio \
   --namespace backup --create-namespace \
   ${KC} \
-  --set auth.rootUser=minioadmin \
-  --set auth.rootPassword=minioadmin123 \
+  --set auth.rootUser="${MINIO_ROOT_USER}" \
+  --set auth.rootPassword="${MINIO_ROOT_PASSWORD}" \
   --set mode=standalone \
   --set persistence.enabled=true \
   --set persistence.storageClass=local-path \
@@ -73,7 +82,8 @@ if [[ -n "${MINIO_IP}" ]]; then
   echo "========================================="
   echo "  API:         http://${MINIO_IP}:9000"
   echo "  Console:     http://${MINIO_IP}:9001"
-  echo "  Credentials: minioadmin / minioadmin123"
+  echo "  Credentials: Stored in ${CREDENTIALS_FILE}"
+  echo "               User: ${MINIO_ROOT_USER}"
   echo ""
   echo "  Storage:     15Gi (demo-optimized)"
   echo "  Resources:   128Mi-256Mi RAM, 50m-250m CPU"

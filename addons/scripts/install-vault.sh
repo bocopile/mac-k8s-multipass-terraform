@@ -12,6 +12,9 @@ GENERATED_DIR="${SCRIPT_DIR}/../generated"
 KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
+# Load credential management library
+source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
+
 if [[ ! -f "${CLUSTERS_JSON}" ]]; then
   echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
   exit 1
@@ -124,9 +127,13 @@ echo "=== Enabling KV v2 secrets engine ==="
 
 if [[ -f "${GENERATED_DIR}/vault-root-token" ]]; then
   ROOT_TOKEN=$(cat "${GENERATED_DIR}/vault-root-token")
+  # Security: Pass token via stdin instead of command-line argument
   kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c \
-    "VAULT_TOKEN=${ROOT_TOKEN} vault secrets enable -path=secret kv-v2 2>/dev/null || true"
+    'export VAULT_TOKEN="'"${ROOT_TOKEN}"'" && vault secrets enable -path=secret kv-v2 2>/dev/null || true'
   echo "KV v2 secrets engine enabled at path: secret/"
+
+  # Save to credentials file for reuse
+  save_credential "VAULT_ROOT_TOKEN" "${ROOT_TOKEN}"
 fi
 
 # =============================================================================

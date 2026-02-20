@@ -9,6 +9,9 @@ GENERATED_DIR="${SCRIPT_DIR}/../generated"
 KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
 CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
+# Load credential management library
+source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
+
 if [[ ! -f "${CLUSTERS_JSON}" ]]; then
   echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
   exit 1
@@ -17,6 +20,12 @@ fi
 MGMT_CONTEXT="kubernetes-admin@mgmt"
 KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
 KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+
+# Load MinIO credentials
+load_credentials || {
+  echo "ERROR: Credentials file not found. Run install-minio.sh first."
+  exit 1
+}
 
 # Helm repo 추가
 helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
@@ -31,8 +40,8 @@ type: S3
 config:
   bucket: thanos
   endpoint: minio.backup.svc.cluster.local:9000
-  access_key: minio
-  secret_key: minio123
+  access_key: ${MINIO_ROOT_USER}
+  secret_key: ${MINIO_ROOT_PASSWORD}
   insecure: true
   signature_version2: false
   http_config:
