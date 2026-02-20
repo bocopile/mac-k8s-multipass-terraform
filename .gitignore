@@ -1,12 +1,16 @@
-# Terraform state
+# OpenTofu / Terraform state files
 terraform.tfstate
 terraform.tfstate.backup
+tofu.tfstate
+tofu.tfstate.backup
 *.tfstate
 *.tfstate.backup
 
-# Terraform dir
+# OpenTofu / Terraform directories
 .terraform/
 .terraform.lock.hcl
+.opentofu/
+.opentofu.lock.hcl
 
 # Local kubeconfig
 kubeconfig
@@ -59,3 +63,11 @@ secrets.env
 .env.local
 .orchestrator/**
 .claude/**
+
+# OpenTofu / Terraform plan files
+tfplan
+tfplan.out
+*.tfplan
+*.backup
+tofu.plan
+*.tofuplan

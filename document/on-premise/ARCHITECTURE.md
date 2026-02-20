@@ -1,9 +1,9 @@
-# Azure AKS 멀티클러스터 아키텍처
+# Kubernetes 멀티클러스터 아키텍처
 
-> **버전**: 3.0.0
-> **최종 수정일**: 2026-02-14
-> **IaC 소스**: 본 문서의 모든 내용은 `azure/` 디렉터리의 실제 Terraform / Helm Values / Shell Script 코드에서 도출
-> **관련 문서**: [SMARTER-PROMPT.md](SMARTER-PROMPT.md) | [운영 런북](OPERATIONS-RUNBOOK.md)
+> **버전**: 5.0.0
+> **Kubernetes**: v1.35 (Timbernetes)
+> **최종 수정일**: 2026-02-20
+> **관련 문서**: [구현 가이드](IMPLEMENTATION-GUIDE.md) | [운영 런북](OPERATIONS-RUNBOOK.md)
 
 ---
 
@@ -11,15 +11,17 @@
 
 1. [개요](#1-개요)
 2. [아키텍처 결정 기록 (ADR)](#2-아키텍처-결정-기록-adr)
-3. [클러스터 토폴로지](#3-클러스터-토폴로지)
-4. [네트워크 아키텍처](#4-네트워크-아키텍처)
-5. [보안 아키텍처](#5-보안-아키텍처)
-6. [관찰성 아키텍처](#6-관찰성-아키텍처)
-7. [GitOps 및 시크릿 관리](#7-gitops-및-시크릿-관리)
-8. [스토리지 아키텍처](#8-스토리지-아키텍처)
-9. [장애 도메인 및 가용성](#9-장애-도메인-및-가용성)
-10. [비용 최적화 전략](#10-비용-최적화-전략)
-11. [백업 및 DR 전략](#11-백업-및-dr-전략)
+3. [시스템 요구사항](#3-시스템-요구사항)
+4. [클러스터 토폴로지](#4-클러스터-토폴로지)
+5. [네트워크 아키텍처](#5-네트워크-아키텍처)
+6. [스토리지 아키텍처](#6-스토리지-아키텍처)
+7. [보안 아키텍처](#7-보안-아키텍처)
+8. [관찰성 아키텍처](#8-관찰성-아키텍처)
+9. [장애 도메인 및 복원력](#9-장애-도메인-및-복원력)
+10. [백업 및 DR 전략](#10-백업-및-dr-전략)
+11. [리소스 계획](#11-리소스-계획)
+12. [플랫폼 부가 도구](#12-플랫폼-부가-도구)
+13. [Terraform 파이프라인](#13-terraform-파이프라인)
 
 ---
 
@@ -27,613 +29,1186 @@
 
 ### 1.1 프로젝트 목적
 
-Azure 클라우드에서 AKS 기반 Kubernetes 멀티클러스터(3개) 환경을 **Terraform 모듈 + Helm + Shell Script**로 구축한다.
-시연/개발 목적으로 Spot VM + AKS Free Tier로 월 $60-80 비용 최적화를 달성한다.
+macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 프로덕션급 Kubernetes 멀티클러스터 환경을 구축합니다.
 
 ### 1.2 대상 환경 및 SLO
 
-| 항목 | 값 | 코드 참조 |
-|-----|-----|----------|
-| **환경 유형** | 시연/개발/PoC | `azure/variables.tf` (`environment = "demo"`) |
-| **리전** | Korea Central | `azure/variables.tf` (`location = "koreacentral"`) |
-| **워크로드 유형** | Stateless (주), Stateful (보조) | |
+| 항목 | 값 |
+|-----|-----|
+| **환경 유형** | 개발/학습/시연 (로컬) |
+| **워크로드 유형** | Stateless (주), Stateful (보조) |
+| **테넌시** | 단일 (개인 개발 환경) |
 
-| SLO 지표 | 시연 환경 | 프로덕션 권장 |
-|---------|----------|-------------|
-| **가용성** | 95% | 99.9% |
-| **RTO** | 2시간 | 15분 |
-| **RPO** | 24시간 | 1시간 |
+| SLO 지표 | 목표 | 비고 |
+|---------|------|------|
+| **가용성** | 99% | 월 ~7시간 다운타임 허용 |
+| **RTO** | 1시간 | 클러스터 재생성 기준 |
+| **RPO** | 24시간 | 일일 백업 기준 |
 
-### 1.3 Azure 관리형 서비스 SLA
+### 1.3 핵심 원칙
 
-| 서비스 | SLA | 비고 |
-|-------|-----|------|
-| AKS Control Plane | 99.5% (무료) / 99.95% (유료) | 시연은 무료 티어 |
-| Azure Key Vault | 99.99% | |
-| Azure Load Balancer | 99.99% | Standard SKU |
+| 원칙 | 설명 |
+|-----|------|
+| **IaC** | Terraform으로 모든 인프라 정의 |
+| **GitOps** | ArgoCD 기반 선언적 배포 |
+| **제로 트러스트** | PSA + Kyverno 2-layer 보안 |
+| **장애 격리** | mgmt 장애 시에도 app 클러스터 독립 운영 |
+| **Graceful Degradation** | 의존 서비스 장애 시 제한된 기능으로 계속 동작 |
 
-### 1.4 기술 스택
+### 1.4 기술 스택 개요
 
-| 영역 | 기술 | 코드 참조 |
-|-----|------|----------|
-| **인프라** | Terraform (azurerm ~> 3.0), Azure Storage backend | `azure/versions.tf` |
-| **컴퓨팅** | AKS + Spot VM (Standard_D2s_v3) | `azure/modules/aks/main.tf` |
-| **네트워크** | VNet + 4 Subnets + 3 NSG | `azure/modules/vnet/main.tf` |
-| **CNI** | Cilium BYO (`network_plugin = "none"`) | `azure/modules/aks/main.tf`, `azure/addons/install.sh` |
-| **시크릿** | Azure Key Vault + Workload Identity + External Secrets Operator | `azure/modules/keyvault/main.tf` |
-| **관찰성** | Azure Monitor + Container Insights (Log Analytics) | `azure/modules/observability/main.tf` |
-| **GitOps** | ArgoCD (AKS-mgmt) | `azure/addons/values/argocd-values.yaml` |
-| **정책** | Azure Policy for AKS | `azure/modules/aks/main.tf` (`azure_policy_enabled = true`) |
+| 영역 | 기술 |
+|-----|------|
+| **인프라** | Multipass, OpenTofu 1.11 (Terraform 호환), cloud-init |
+| **쿠버네티스** | kubeadm v1.35, containerd |
+| **네트워크** | Cilium (VXLAN) + Cluster Mesh + Gateway API v1.2.1 + MetalLB L2 |
+| **Service Mesh** | Istio v1.29.0 + Cilium CNI 통합 |
+| **GitOps** | ArgoCD (mgmt 클러스터) |
+| **시크릿/PKI** | Vault + External Secrets Operator + cert-manager v1.19.3 |
+| **관찰성** | Prometheus + Thanos + Loki + Promtail + Tempo + Grafana + OpenTelemetry + Hubble + Kiali |
+| **보안** | PSA + Kyverno + Falco + Tetragon + Trivy + Istio AuthZ |
+| **AIOps/최적화** | K8sGPT + HolmesGPT (Robusta) + OpenCost + Goldilocks/VPA |
+| **ChatOps** | Botkube (Slack 통합, 선택적) |
+| **AI Backend** | LocalAI (오픈소스 LLM, CPU 모드) |
+| **카오스 엔지니어링** | Chaos Mesh |
+| **백업** | Velero + MinIO |
 
 ### 1.5 제약 조건
 
-- Ansible/Helmfile 미사용 (Helm CLI + Shell Script)
-- 시연 환경 전용 (Spot VM 전노드, Public API, Dev 수준 설정)
-- Terraform State는 Azure Storage 원격 관리
+- Ansible 미사용 (Shell Script로 대체)
+- Helmfile 미사용 (Helm CLI 직접 사용)
+- 로컬 환경 한정 (macOS + Multipass VM)
+- VM 노드 IP는 Multipass DHCP 동적 할당 (Static IP 미사용)
 
 ---
 
 ## 2. 아키텍처 결정 기록 (ADR)
 
-### ADR-A01: Spot VM 배치 전략 (Tier 기반)
+### ADR-001: mgmt 클러스터 중심의 플랫폼 서비스 집중
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | Spot VM은 최대 ~70% 저렴하나 회수(eviction) 가능 |
-| **결정** | 워크로드를 Tier 0/1/2로 분류하여 배치 |
-| **적용** | 시연 환경 - 비용 최소화 우선 |
+| **컨텍스트** | 로컬 리소스 제약(64GB RAM) 하에서 효율적인 플랫폼 운영 필요 |
+| **결정** | Vault, 관찰성, 백업 등 플랫폼 서비스를 mgmt 클러스터에 집중 배치 |
+| **결과** | 리소스 효율성 확보, 단 mgmt가 SPOF가 되므로 장애 도메인 명확화 필요 |
+| **완화책** | app 클러스터는 로컬 캐시/버퍼로 독립 동작 (섹션 9 참조) |
 
-**Tier 분류**:
-
-| Tier | 워크로드 | 시연 환경 | 프로덕션 권장 |
-|-----|---------|----------|-------------|
-| **Tier 0** | Control Plane (AKS 관리형), CoreDNS | AKS 관리형 (Azure 보장) | AKS 관리형 |
-| **Tier 1** | mgmt 클러스터 (ArgoCD, ESO) | Spot VM | On-Demand |
-| **Tier 2** | app 클러스터 (애플리케이션) | Spot VM | Spot VM |
-
-> 📎 **구현**: `azure/modules/aks/main.tf` - `azurerm_kubernetes_cluster_node_pool.spot`
-
-```hcl
-# Spot Node Pool 핵심 설정
-priority        = "Spot"
-eviction_policy = "Delete"
-spot_max_price  = var.spot_max_price  # -1 = On-Demand 가격까지 허용
-node_taints     = ["kubernetes.azure.com/scalesetpriority=spot:NoSchedule"]
-```
-
-### ADR-A02: CNI 선택 - Cilium BYO
+### ADR-002: Kubernetes Feature-gate 선택적 활성화
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | 멀티클러스터 서비스 디스커버리 지원과 Azure 네이티브 통합 간 트레이드오프 |
-| **결정** | Cilium BYO CNI (`network_plugin = "none"`) |
-| **근거** | Cluster Mesh 자유 구성, eBPF 기반 성능, 벤더 중립 |
+| **컨텍스트** | K8s 1.35에서 InPlacePodVerticalScaling이 GA 졸업, 활용 여부 결정 필요 |
+| **결정** | InPlacePodVerticalScaling GA 기능을 활용하되, 기본 아키텍처는 VPA만으로도 동작하도록 설계 |
+| **결과** | GA 기능이므로 별도 feature-gate 설정 불필요, VPA InPlaceOrRecreate 모드 활용 가능 |
 
-**비교**:
-
-| 항목 | Cilium (BYO) | Azure CNI Powered by Cilium | Azure CNI |
-|-----|-------------|---------------------------|-----------|
-| Cluster Mesh | 자유 구성 | 제한적 | 미지원 |
-| Azure 네이티브 통합 | 제한적 | 지원 | 완전 지원 |
-| eBPF 기반 성능 | 지원 | 지원 | 미지원 |
-
-> 📎 **구현**: `azure/modules/aks/main.tf` - `network_profile { network_plugin = "none" }`
-> 📎 **설치**: `azure/addons/install.sh` - `helm upgrade --install cilium cilium/cilium --set aksbyocni.enabled=true`
-
-### ADR-A03: 시크릿 관리 - Azure Key Vault + Workload Identity
+### ADR-003: PSA + Kyverno 2-Layer 보안 모델
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | Azure 네이티브 시크릿 관리 서비스 선택 |
-| **결정** | Key Vault + Workload Identity + External Secrets Operator |
-| **근거** | 캐싱 기반 장애 대응, CSI Driver 대비 운영 유연성, RBAC 인증 |
+| **컨텍스트** | PSA 예외가 늘어나면 보안 정책이 무력화되는 패턴 방지 필요 |
+| **결정** | PSA는 기본 경계(baseline), Kyverno는 워크로드별 세부 정책 담당 |
+| **역할 분담** | PSA: 네임스페이스 레벨 강제, Kyverno: 이미지/리소스/라벨 정책 |
 
-> 📎 **구현**: `azure/modules/keyvault/main.tf`
+**Kyverno 배치 범위**:
 
-```hcl
-# 핵심 리소스 체인
-azurerm_key_vault.main                    # RBAC 인증 모드
-  → azurerm_user_assigned_identity.workload   # Workload Identity
-  → azurerm_federated_identity_credential     # AKS OIDC ↔ Key Vault 연결
-  → azurerm_role_assignment                   # Key Vault Secrets User 권한
-```
+| 클러스터 | Kyverno | 이유 |
+|---------|---------|------|
+| **mgmt** | 미설치 | 플랫폼/운영자 영역, PSA baseline만 적용 (유연성 확보) |
+| **app1/app2** | 설치 | 개발팀 워크로드 영역, 엄격한 정책 enforce |
 
-### ADR-A04: Public API + NSG 제한
+### ADR-004: 2-Phase PKI 부트스트랩
 
 | 항목 | 내용 |
 |-----|------|
 | **상태** | Accepted |
-| **컨텍스트** | API Server 노출 방식 |
-| **결정** | 시연: Public API + NSG 제한 / 프로덕션: Private Cluster |
+| **컨텍스트** | cert-manager <-> Vault 간 순환 의존성 (닭-달걀 문제) |
+| **결정** | Phase 1: Self-signed Issuer로 부트스트랩 -> Phase 2: Vault Issuer로 전환 |
+| **구현 상태** | Phase 1 완료, Phase 2는 Vault 운영 안정화 후 전환 예정 |
 
-> 📎 **구현**: `azure/modules/vnet/main.tf` - NSG security_rule 정의
+### ADR-005: Cilium Tunneling(VXLAN) 모드 선택
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **컨텍스트** | Multipass 브리지 네트워크에서 Native Routing 복잡도 높음 |
+| **결정** | Cilium Tunneling(VXLAN) 모드로 네트워크 추상화 |
+| **트레이드오프** | 약간의 오버헤드 (로컬 환경에서는 무시 가능) |
+
+### ADR-006: 관찰성 에이전트 모드 아키텍처
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **컨텍스트** | 각 클러스터에 전체 Prometheus 스택 배치 시 I/O 병목 |
+| **결정** | app 클러스터는 Prometheus Agent Mode + Promtail, mgmt는 Full Stack (Prometheus + Grafana + Alertmanager + Thanos + Loki) |
+| **결과** | 로컬 디스크 사용량 최소화, mgmt 장애 시에도 로컬 수집 지속 |
+
+### ADR-007: Istio Service Mesh 도입
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **컨텍스트** | Cilium Cluster Mesh는 네트워크 연결성을 제공하지만, 고급 트래픽 관리 및 세밀한 보안 정책이 필요 |
+| **결정** | Cilium CNI와 Istio Service Mesh를 병행 운영 (Istio CNI 모드 사용) |
+| **근거** | - Cilium: 고성능 네트워킹 + eBPF 보안<br/>- Istio: mTLS, Traffic Management, 세밀한 인가 정책<br/>- Gateway API 기반 통합으로 vendor lock-in 회피 |
+| **트레이드오프** | 복잡도 증가, 리소스 추가 소비(~1GB RAM), 학습 곡선 |
+| **완화책** | - Istio는 mgmt + app1에만 배포 (app2는 선택적)<br/>- Sidecar injection을 네임스페이스 레이블로 제어 |
+| **결과** | Istio 1.29.0 배포 완료 (K8s 1.35 호환), Tempo + OTel Collector + Kiali 관찰성 스택 통합 |
+
+### ADR-008: OpenTofu 채택 (Terraform 대체)
+
+| 항목 | 내용 |
+|-----|------|
+| **상태** | Accepted |
+| **일자** | 2026-02-20 |
+| **컨텍스트** | HashiCorp가 Terraform을 BSL(Business Source License)로 변경하여 오픈소스 라이선스 리스크 발생 |
+| **결정** | Terraform → OpenTofu 1.11로 마이그레이션 (Terraform fork, MPL 2.0 라이선스) |
+| **근거** | - **라이선스**: BSL 제약 없는 완전 오픈소스 (MPL 2.0)<br/>- **100% 호환**: Terraform 1.6.x 코드/provider 재사용 가능<br/>- **거버넌스**: Linux Foundation 주도로 벤더 락인 방지<br/>- **추가 기능**: State 암호화, Provider for_each, Early variable evaluation<br/>- **커뮤니티**: 활발한 개발 및 장기 지원 (1.11 시리즈 2026년 8월까지 지원) |
+| **트레이드오프** | Terraform 1.7+ 신기능 미지원, CLI 명령어 변경 (`terraform` → `tofu`) |
+| **완화책** | - Shell alias 설정으로 호환성 유지 (`alias terraform=tofu`)<br/>- 기존 .tf 파일은 변경 불필요 (100% 문법 호환)<br/>- .gitignore에 OpenTofu 패턴 추가 |
+| **결과** | - README.md, .gitignore, 문서 업데이트 완료<br/>- `tofu validate` 성공<br/>- State 암호화 기능 향후 활용 가능 |
+| **영향받는 컴포넌트** | 모든 .tf 파일 (변경 없음), 문서, CI/CD 파이프라인 (명령어만 변경) |
 
 ### 아키텍처 불변 조건 (Architecture Contract)
 
 > 아래 조건은 구현이 변경되더라도 **반드시 유지**되어야 하는 아키텍처 보장 사항입니다.
 
-| # | 불변 조건 | 근거 ADR | 코드 참조 |
-|---|----------|----------|----------|
-| **C1** | AKS Control Plane은 **Azure 관리형**으로 Tier 분류 대상 아님 | ADR-A01 | - |
-| **C2** | 시연 환경 User Node Pool은 **Spot VM** 사용 | ADR-A01 | `modules/aks/main.tf` |
-| **C3** | 프로덕션 전환 시 Tier 1은 **On-Demand** 변경 권장 | ADR-A01 | `modules/aks/variables.tf` |
-| **C4** | 시크릿은 **Key Vault + Workload Identity**로 관리 | ADR-A03 | `modules/keyvault/main.tf` |
-| **C5** | 시연은 **Public API + NSG**, 프로덕션은 **Private Cluster** | ADR-A04 | `modules/vnet/main.tf` |
-| **C6** | ESO 캐시로 Key Vault 장애 시 **기존 시크릿 유지** | ADR-A03 | `addons/install.sh` |
+| # | 불변 조건 | 근거 ADR |
+|---|----------|----------|
+| **C1** | mgmt 클러스터 장애 시에도 app 클러스터 워크로드는 **독립 실행** 지속 | ADR-001 |
+| **C2** | app 클러스터의 Prometheus Agent는 WAL 로컬 버퍼링 유지 (**2시간** retention) | ADR-006 |
+| **C3** | External Secrets는 **refreshInterval 1h** 캐시로 Vault 장애 시에도 동작 | ADR-001 |
+| **C4** | Kyverno는 **app 클러스터에만** enforce 모드로 배치 (mgmt 제외) | ADR-003 |
+| **C5** | PKI 부트스트랩은 **2-Phase** (Self-signed -> Vault Issuer) 순서 준수 | ADR-004 |
+| **C6** | Cilium은 **Tunneling(VXLAN)** 모드로 동작 | ADR-005 |
+| **C7** | Istio Gateway 인증서는 **cert-manager + Vault PKI**로 자동 발급/갱신 | ADR-007 |
+| **C8** | IaC는 **OpenTofu**를 사용하며 Terraform 호환성 유지 | ADR-008 |
 
 ---
 
-## 3. 클러스터 토폴로지
+## 3. 시스템 요구사항
 
-### 3.1 Azure 아키텍처 다이어그램
+### 3.1 호스트 머신 스펙
 
-> 📎 **코드 참조**: `azure/main.tf` - 모듈 호출 구조
+| 리소스 | 최소 | 권장 | 현재 |
+|-------|------|------|------|
+| **CPU** | 8코어 | 10코어 이상 | Apple M1 Max (10코어) |
+| **RAM** | 32GB | 64GB | 64GB |
+| **디스크** | 256GB SSD | 512GB 이상 | 540GB 가용 |
+| **OS** | macOS 13+ | macOS 14+ | Darwin 25.3.0 |
+
+### 3.2 리소스 할당
+
+**RAM 할당 (총 가용: 56GB)**:
+
+| 구성요소 | RAM | 용도 |
+|---------|-----|------|
+| macOS 시스템 + IDE 등 | 14GB | 호스트 운영 |
+| mgmt 클러스터 | 12GB | 플랫폼 서비스 |
+| app1 클러스터 | 7GB | 워크로드 |
+| app2 클러스터 | 7GB | 워크로드 |
+| **합계** | **40GB** | |
+| **전체 여유** | **24GB** | |
+
+---
+
+## 4. 클러스터 토폴로지
+
+### 4.1 상위 레벨 아키텍처
 
 ```mermaid
 flowchart TB
-    subgraph Azure["Azure Subscription (Korea Central)"]
-        subgraph RG["Resource Group: rg-k8s-demo"]
-            subgraph VNet["VNet: 10.0.0.0/8"]
-                subgraph SubnetMgmt["subnet-aks-mgmt<br/>10.1.0.0/16"]
-                    AKSmgmt["AKS-mgmt<br/>System 1노드 + Spot 1노드<br/>Tier 1"]
-                end
-
-                subgraph SubnetApp1["subnet-aks-app1<br/>10.2.0.0/16"]
-                    AKSapp1["AKS-app1<br/>System 1노드 + Spot 2노드<br/>Tier 2"]
-                end
-
-                subgraph SubnetApp2["subnet-aks-app2<br/>10.3.0.0/16"]
-                    AKSapp2["AKS-app2<br/>System 1노드 + Spot 2노드<br/>Tier 2"]
-                end
-
-                subgraph SubnetSvc["subnet-services<br/>10.4.0.0/24"]
-                    KeyVault["Key Vault<br/>kv-k8s-demo"]
-                end
+    subgraph Host["macOS 호스트 (Mac Studio M1 Max, 64GB)"]
+        subgraph Multipass["Multipass VM (26GB)"]
+            subgraph mgmt["mgmt 클러스터 (12GB)"]
+                mgmt-cp["CP (4GB)"]
+                mgmt-worker["Worker (8GB)"]
+                mgmt-services["Vault, Prometheus, Grafana,<br/>Thanos, Loki, ArgoCD,<br/>MinIO, Velero"]
             end
 
-            LAW["Log Analytics<br/>law-k8s-demo"]
+            subgraph app1["app1 클러스터 (7GB)"]
+                app1-cp["CP (3GB)"]
+                app1-worker["Worker (4GB)"]
+            end
+
+            subgraph app2["app2 클러스터 (7GB)"]
+                app2-cp["CP (3GB)"]
+                app2-worker["Worker (4GB)"]
+            end
         end
     end
 
-    AKSmgmt <-->|"Cilium"| AKSapp1
-    AKSmgmt <-->|"Cilium"| AKSapp2
-    AKSapp1 <-->|"Cilium"| AKSapp2
-
-    AKSmgmt --> LAW
-    AKSapp1 --> LAW
-    AKSapp2 --> LAW
-
-    style Azure fill:#e3f2fd
-    style RG fill:#bbdefb
-    style VNet fill:#90caf9
-    style SubnetSvc fill:#fff3e0
+    mgmt <-->|"Cluster Mesh"| app1
+    mgmt <-->|"Cluster Mesh"| app2
+    app1 <-->|"Cluster Mesh"| app2
 ```
 
-### 3.2 Terraform 모듈 구조
+### 4.2 클러스터 역할 및 책임
 
-> 📎 **코드 참조**: `azure/main.tf`
+| 클러스터 | 역할 | 컴포넌트 |
+|---------|------|---------|
+| **mgmt** | 플랫폼 서비스 | Vault, Prometheus Full, Thanos, Loki, Grafana, Tempo, Alertmanager, ArgoCD, Velero, MinIO, Trivy, K8sGPT, HolmesGPT (Robusta), LocalAI, Botkube (선택), OpenCost, VPA+Goldilocks, Chaos Mesh, Istio (Istiod + Ingress Gateway), Kiali |
+| **app1** | 워크로드 A | 애플리케이션, Prometheus Agent, Promtail, OpenTelemetry Collector, Kyverno, Falco, Istio Sidecar |
+| **app2** | 워크로드 B | 애플리케이션, Prometheus Agent, Promtail, OpenTelemetry Collector, Kyverno, Falco |
+| **전체** | 공통 인프라 | Cilium, Tetragon (DaemonSet), MetalLB, cert-manager, ESO |
 
-```mermaid
-flowchart LR
-    RG["azurerm_resource_group"]
-    VNET["module.vnet<br/>(VNet + Subnets + NSG)"]
-    OBS["module.observability<br/>(Log Analytics)"]
-    MGMT["module.aks_mgmt"]
-    APP1["module.aks_app1"]
-    APP2["module.aks_app2"]
-    KV["module.keyvault<br/>(Key Vault + WI)"]
+### 4.3 클러스터 스펙
 
-    RG --> VNET
-    RG --> OBS
-    VNET --> MGMT
-    VNET --> APP1
-    VNET --> APP2
-    OBS --> MGMT
-    OBS --> APP1
-    OBS --> APP2
-    MGMT --> KV
-```
+| 클러스터 | Control Plane | Workers | 총 RAM | 총 CPU |
+|---------|---------------|---------|--------|--------|
+| **mgmt** | 1 (4GB/2C) | 1 (8GB/2C) | 12GB | 4 vCPU |
+| **app1** | 1 (3GB/2C) | 1 (4GB/2C) | 7GB | 4 vCPU |
+| **app2** | 1 (3GB/2C) | 1 (4GB/2C) | 7GB | 4 vCPU |
+| **합계** | | | **26GB** | **12 vCPU** |
 
-### 3.3 클러스터 스펙
+> **참고**: AI 도구 추가 시 mgmt-worker-0를 8GB → 10GB로 증설 권장 (LocalAI ~2GB, HolmesGPT ~512MB, K8sGPT ~128MB, Botkube ~256MB)
 
-> 📎 **코드 참조**: `azure/modules/aks/main.tf`, `azure/variables.tf`
+### 4.4 노드 IP 할당
 
-| 클러스터 | Terraform 모듈 | VM Size | System Pool | Spot Pool | Subnet |
-|---------|---------------|---------|-------------|-----------|--------|
-| **AKS-mgmt** | `module "aks_mgmt"` | Standard_D2s_v3 | 1노드 (30GB) | 1노드 (30GB) | `10.1.0.0/16` |
-| **AKS-app1** | `module "aks_app1"` | Standard_D2s_v3 | 1노드 (30GB) | 2노드 (30GB) | `10.2.0.0/16` |
-| **AKS-app2** | `module "aks_app2"` | Standard_D2s_v3 | 1노드 (30GB) | 2노드 (30GB) | `10.3.0.0/16` |
+> **참고**: Multipass DHCP로 동적 할당됩니다. 아래는 예시입니다.
+
+| 클러스터 | 노드 | IP 할당 |
+|---------|------|---------|
+| mgmt | mgmt-cp | DHCP (192.168.64.x) |
+| mgmt | mgmt-worker-0 | DHCP (192.168.64.x) |
+| app1 | app1-cp | DHCP (192.168.64.x) |
+| app1 | app1-worker-0 | DHCP (192.168.64.x) |
+| app2 | app2-cp | DHCP (192.168.64.x) |
+| app2 | app2-worker-0 | DHCP (192.168.64.x) |
 
 ---
 
-## 4. 네트워크 아키텍처
+## 5. 네트워크 아키텍처
 
-### 4.1 VNet 설계
-
-> 📎 **코드 참조**: `azure/modules/vnet/main.tf`
-
-| Subnet | CIDR | 용도 | NSG |
-|--------|------|------|-----|
-| `subnet-aks-mgmt` | `10.1.0.0/16` | AKS-mgmt 노드 | `nsg-aks-mgmt` |
-| `subnet-aks-app1` | `10.2.0.0/16` | AKS-app1 노드 | `nsg-aks-app1` |
-| `subnet-aks-app2` | `10.3.0.0/16` | AKS-app2 노드 | `nsg-aks-app2` |
-| `subnet-services` | `10.4.0.0/24` | 관리형 서비스 (Key Vault) | - |
-
-### 4.2 NSG 트래픽 제어
-
-> 📎 **코드 참조**: `azure/modules/vnet/main.tf` - `azurerm_network_security_group`
-
-단일 VNet 내 Subnet 간에는 기본 라우팅이 가능하며, NSG로 트래픽을 제어합니다:
-
-```mermaid
-flowchart LR
-    mgmt["AKS-mgmt<br/>10.1.0.0/16"]
-    app1["AKS-app1<br/>10.2.0.0/16"]
-    app2["AKS-app2<br/>10.3.0.0/16"]
-
-    mgmt <-->|"NSG: allow-app-subnets<br/>priority 100"| app1
-    mgmt <-->|"NSG: allow-app-subnets<br/>priority 100"| app2
-    app1 <-.->|"기본 라우팅"| app2
-
-    style mgmt fill:#e8f5e9
-    style app1 fill:#e3f2fd
-    style app2 fill:#fce4ec
-```
-
-**NSG 규칙 상세**:
-
-| NSG | 규칙명 | 방향 | Source | Destination | 우선순위 |
-|-----|--------|------|--------|-------------|---------|
-| `nsg-aks-mgmt` | `allow-app-subnets` | Inbound | `10.2.0.0/16`, `10.3.0.0/16` | `10.1.0.0/16` | 100 |
-| `nsg-aks-app1` | `allow-mgmt-subnet` | Inbound | `10.1.0.0/16` | `10.2.0.0/16` | 100 |
-| `nsg-aks-app2` | `allow-mgmt-subnet` | Inbound | `10.1.0.0/16` | `10.3.0.0/16` | 100 |
-
-### 4.3 CNI: Cilium BYO
-
-> 📎 **코드 참조**: `azure/modules/aks/main.tf` (AKS 설정), `azure/addons/install.sh` (Helm 설치)
-
-| 항목 | 설정 |
-|-----|------|
-| AKS `network_plugin` | `"none"` (BYO CNI 모드) |
-| Helm Chart | `cilium/cilium` |
-| 핵심 옵션 | `aksbyocni.enabled=true`, `nodeinit.enabled=true` |
-| 설치 대상 | 3개 클러스터 모두 (`install.sh`에서 순차 설치) |
-
----
-
-## 5. 보안 아키텍처
-
-### 5.1 보안 계층 모델
+### 5.1 네트워크 토폴로지
 
 ```mermaid
 flowchart TB
-    subgraph L1["L1. Azure Identity / RBAC"]
-        auth["AKS SystemAssigned Identity<br/>+ Workload Identity"]
+    subgraph Bridge["Multipass 브리지 (192.168.64.0/24)"]
+        subgraph mgmt["mgmt 클러스터"]
+            mgmt-pod["Pod CIDR<br/>10.100.0.0/16"]
+            mgmt-svc["Service CIDR<br/>10.96.0.0/16"]
+        end
+
+        subgraph app1["app1 클러스터"]
+            app1-pod["Pod CIDR<br/>10.101.0.0/16"]
+            app1-svc["Service CIDR<br/>10.97.0.0/16"]
+        end
+
+        subgraph app2["app2 클러스터"]
+            app2-pod["Pod CIDR<br/>10.102.0.0/16"]
+            app2-svc["Service CIDR<br/>10.98.0.0/16"]
+        end
     end
 
-    subgraph L2["L2. 네트워크 보안"]
-        NSG["NSG 3개<br/>(Subnet 간 트래픽 제어)"]
+    mgmt-pod <-->|"Cilium Cluster Mesh"| app1-pod
+    mgmt-pod <-->|"Cilium Cluster Mesh"| app2-pod
+    app1-pod <-->|"Cilium Cluster Mesh"| app2-pod
+```
+
+### 5.2 CIDR 할당
+
+| 클러스터 | Pod CIDR | Service CIDR | MetalLB 풀 | IP 수 |
+|---------|----------|--------------|-----------|-------|
+| **mgmt** | 10.100.0.0/16 | 10.96.0.0/16 | 192.168.64.200-210 | 11 |
+| **app1** | 10.101.0.0/16 | 10.97.0.0/16 | 192.168.64.211-220 | 10 |
+| **app2** | 10.102.0.0/16 | 10.98.0.0/16 | 192.168.64.221-230 | 10 |
+
+### 5.3 CNI: Cilium
+
+| 기능 | 설명 | 구현 |
+|-----|------|------|
+| **Cluster Mesh** | 멀티클러스터 서비스 디스커버리 | `scripts/setup-clustermesh.sh` |
+| **Tunneling (VXLAN)** | Multipass 환경에서 안정적 동작 | `routingMode=tunnel` |
+| **kube-proxy 대체** | eBPF 기반 서비스 라우팅 | `kubeProxyReplacement=true` |
+| **Hubble** | 네트워크 관찰성 (UI + CLI + Relay) | `hubble.ui.enabled=true` |
+| **Network Policy** | L3/L4/L7 정책 지원 | Cilium CRD |
+| **Gateway API** | Ingress 대체, CRD v1.2.1 | `scripts/install-gateway-api.sh` |
+
+### 5.4 외부 로드밸런서: MetalLB
+
+- **모드**: L2 (ARP 기반)
+- **이유**: Multipass 브리지 네트워크에서 BGP 불가
+- **설치**: `scripts/install-metallb.sh`
+
+### 5.5 Service Mesh: Istio (예정)
+
+#### 5.5.1 아키텍처 개요
+
+```mermaid
+flowchart TB
+    subgraph External["외부 클라이언트"]
+        Client[브라우저/API 클라이언트]
     end
 
-    subgraph L3["L3. 워크로드 보안"]
-        Policy["Azure Policy for AKS<br/>(azure_policy_enabled = true)"]
+    subgraph mgmt["mgmt 클러스터"]
+        IG_mgmt[Istio Ingress Gateway<br/>LoadBalancer]
+        Vault[Vault<br/>cert-manager Issuer]
+        CM[cert-manager<br/>Certificate CRD]
+
+        CM -->|인증서 발급 요청| Vault
+        Vault -->|TLS 인증서| IG_mgmt
     end
 
-    subgraph L4["L4. 시크릿 관리"]
-        KV["Key Vault (RBAC 인증)<br/>+ Workload Identity<br/>+ External Secrets Operator"]
+    subgraph app1["app1 클러스터"]
+        IG_app1[Istio Ingress Gateway]
+        Sidecar1[Envoy Sidecar<br/>mTLS]
+        App1[워크로드]
+
+        Sidecar1 -.->|inject| App1
+    end
+
+    Client -->|HTTPS| IG_mgmt
+    Client -->|HTTPS| IG_app1
+
+    IG_mgmt <-->|Cluster Mesh + mTLS| Sidecar1
+```
+
+#### 5.5.2 Cilium + Istio 통합 전략
+
+| 계층 | Cilium | Istio | 역할 분담 |
+|-----|--------|-------|----------|
+| **L3/L4 네트워킹** | ✅ 담당 | - | eBPF 기반 고성능 패킷 포워딩 |
+| **kube-proxy 대체** | ✅ 담당 | - | `kubeProxyReplacement=true` |
+| **Cluster Mesh** | ✅ 담당 | - | 멀티클러스터 서비스 디스커버리 |
+| **L7 트래픽 제어** | - | ✅ 담당 | Traffic Shifting, Retry, Timeout |
+| **mTLS (Mesh 내부)** | - | ✅ 담당 | workload-to-workload 암호화 |
+| **인가 정책** | L3/L4 | ✅ L7 담당 | AuthorizationPolicy (JWT, RBAC) |
+| **Gateway (North-South)** | Gateway API | ✅ Istio Gateway | Ingress 대체 |
+| **관찰성** | Hubble | Kiali/Jaeger | 병행 사용 |
+
+**통합 모드**: Istio CNI
+- Cilium이 주 CNI 역할 유지
+- Istio는 sidecar injection만 담당
+- `istio-cni` 플러그인으로 충돌 방지
+
+#### 5.5.3 Istio 배포 범위
+
+| 클러스터 | Istio 구성 요소 | 용도 |
+|---------|----------------|------|
+| **mgmt** | Ingress Gateway + Istiod | - 플랫폼 서비스 외부 접근 (Grafana, ArgoCD)<br/>- 중앙 인증서 관리 (Vault + cert-manager) |
+| **app1** | Full Mesh (Istiod + Gateway + Sidecar) | - 프로덕션급 트래픽 제어<br/>- Canary 배포, A/B 테스트<br/>- mTLS enforced |
+| **app2** | 선택적 (추후 결정) | - 초기에는 Cilium만 사용<br/>- 필요 시 Istio 추가 |
+
+#### 5.5.4 인증서 자동 갱신 (Vault + cert-manager + Istio)
+
+**Phase 2 PKI 플로우**:
+
+```mermaid
+sequenceDiagram
+    participant CM as cert-manager
+    participant Vault as Vault PKI
+    participant K8s as Kubernetes Secret
+    participant IG as Istio Gateway
+
+    Note over CM: renewBefore 도달<br/>(만료 30일 전)
+    CM->>Vault: CSR + K8s Auth
+    Vault-->>CM: 새 TLS 인증서
+    CM->>K8s: Secret 업데이트<br/>(istio-gateway-cert)
+    K8s-->>IG: Watch 이벤트
+    IG->>IG: Envoy Hot Reload
+    Note over IG: 무중단 인증서 교체
+```
+
+**Certificate 리소스 예시**:
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-gateway-cert
+  namespace: istio-system
+spec:
+  secretName: istio-gateway-cert
+  dnsNames:
+  - "*.example.com"
+  - gateway.example.com
+  duration: 2160h        # 90일
+  renewBefore: 720h      # 30일 전 갱신
+  privateKey:
+    rotationPolicy: Always
+  issuerRef:
+    name: vault-issuer
+    kind: ClusterIssuer
+```
+
+**Gateway 설정**:
+```yaml
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: istio-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: istio-gateway-cert  # Certificate의 secretName
+    hosts:
+    - "*.example.com"
+```
+
+#### 5.5.5 트래픽 관리 전략
+
+| 기능 | 구현 | 사용 사례 |
+|-----|------|----------|
+| **Traffic Splitting** | VirtualService weight | Canary 배포 (90% v1, 10% v2) |
+| **Request Routing** | VirtualService match | Header/Cookie 기반 라우팅 |
+| **Retry Policy** | VirtualService retries | 일시적 장애 대응 |
+| **Timeout** | VirtualService timeout | 응답 지연 보호 |
+| **Circuit Breaking** | DestinationRule | 장애 전파 방지 |
+| **Fault Injection** | VirtualService fault | 카오스 테스트 |
+
+#### 5.5.6 보안 정책
+
+**mTLS 모드**:
+- **STRICT**: app1 클러스터 (모든 통신 암호화 강제)
+- **PERMISSIVE**: mgmt 클러스터 (레거시 호환)
+
+**AuthorizationPolicy 예시**:
+```yaml
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: default
+spec:
+  action: DENY
+  rules:
+  - from:
+    - source:
+        notNamespaces: ["istio-system"]
+```
+
+#### 5.5.7 관찰성 통합
+
+| 도구 | Istio 메트릭 | 통합 방법 |
+|-----|-------------|----------|
+| **Prometheus** | Envoy 메트릭 (requests/sec, latency) | ServiceMonitor |
+| **Grafana** | Istio 대시보드 | 기존 Grafana 인스턴스 활용 |
+| **Kiali** | Service Graph, Traffic Flow | Istio 전용 |
+| **Jaeger** | Distributed Tracing | Istio + OpenTelemetry |
+| **Hubble** | L3/L4 Flow Logs | Cilium (병행) |
+
+#### 5.5.8 리소스 예상치
+
+| 구성 요소 | 클러스터 | RAM | CPU |
+|----------|---------|-----|-----|
+| Istiod | mgmt, app1 | 500MB | 200m |
+| Ingress Gateway | mgmt, app1 | 256MB | 100m |
+| Egress Gateway (선택) | - | 128MB | 50m |
+| Envoy Sidecar (Pod당) | app1 | 128MB | 50m |
+| **추정 총합** | - | **~1GB** | |
+
+**영향도**:
+- mgmt 클러스터: 12GB → 13GB (허용 범위)
+- app1 클러스터: 7GB → 8GB (sidecar 포함)
+
+---
+
+## 6. 스토리지 아키텍처
+
+### 6.1 스토리지 계층
+
+```mermaid
+flowchart TB
+    subgraph L1["Layer 1: 임시 (Ephemeral)"]
+        emptyDir["emptyDir<br/>캐시, 사이드카 공유<br/>Pod 생명주기"]
+    end
+
+    subgraph L2["Layer 2: 로컬 (Node-Local)"]
+        localpath["local-path<br/>일반 워크로드<br/>노드 장애 시 손실"]
+    end
+
+    subgraph L3["Layer 3: 보존 (Retained)"]
+        retain["local-path-retain<br/>Vault, MinIO, Prometheus, Grafana<br/>Retain 정책"]
+    end
+
+    subgraph L4["Layer 4: 오브젝트 (Shared)"]
+        minio["MinIO<br/>백업, 아티팩트<br/>오브젝트 스토리지"]
     end
 
     L1 --> L2 --> L3 --> L4
-
-    style L1 fill:#ffcdd2
-    style L2 fill:#f8bbd9
-    style L3 fill:#e1bee7
-    style L4 fill:#d1c4e9
 ```
 
-### 5.2 AKS Identity
+### 6.2 StorageClass 설계
 
-> 📎 **코드 참조**: `azure/modules/aks/main.tf`
+| StorageClass | Provisioner | ReclaimPolicy | 용도 |
+|-------------|-------------|---------------|------|
+| **local-path** (기본) | rancher.io/local-path | Delete | 일반 워크로드 |
+| **local-path-retain** | rancher.io/local-path | Retain | Vault, MinIO, Prometheus, Grafana |
 
-| 설정 | 값 | 효과 |
-|-----|-----|------|
-| `identity.type` | `SystemAssigned` | 클러스터 자체 관리형 ID |
-| `oidc_issuer_enabled` | `true` | Workload Identity OIDC 발급 |
-| `workload_identity_enabled` | `true` | Pod → Azure 리소스 인증 |
-| `azure_policy_enabled` | `true` | Azure Policy for AKS 활성화 |
+> `local-path-retain`은 `scripts/install-platform-addons.sh`에서 자동 생성됩니다.
 
-### 5.3 Key Vault + Workload Identity
+### 6.3 워크로드별 스토리지 매핑
 
-> 📎 **코드 참조**: `azure/modules/keyvault/main.tf`
-
-```mermaid
-flowchart LR
-    SA["K8s ServiceAccount<br/>(external-secrets-sa)"]
-    FC["Federated Credential<br/>(federated-credential-eso)"]
-    WI["User Assigned Identity<br/>(id-workload-identity)"]
-    RA["Role Assignment<br/>(Key Vault Secrets User)"]
-    KV["Key Vault<br/>(kv-k8s-demo)"]
-
-    SA --> FC --> WI --> RA --> KV
-
-    style SA fill:#e3f2fd
-    style FC fill:#fff3e0
-    style WI fill:#e8f5e9
-    style RA fill:#fff9c4
-    style KV fill:#f3e5f5
-```
-
-**Terraform 리소스 체인**:
-
-| 리소스 | 이름 | 역할 |
-|--------|------|------|
-| `azurerm_key_vault` | `kv-k8s-demo` | RBAC 인증, Standard SKU |
-| `azurerm_user_assigned_identity` | `id-workload-identity` | Workload Identity |
-| `azurerm_federated_identity_credential` | `federated-credential-eso` | AKS OIDC ↔ Azure AD 연결 |
-| `azurerm_role_assignment` | - | Key Vault Secrets User 권한 |
-
-### 5.4 Azure Policy 권장 정책
-
-| 정책 | 효과 | 설명 |
-|-----|------|------|
-| 컨테이너 이미지 허용 목록 | Deny | ACR만 허용 |
-| 권한 있는 컨테이너 금지 | Deny | privileged: true 차단 |
-| 리소스 제한 필수 | Audit | requests/limits 검사 |
+| 워크로드 | StorageClass | 크기 | 보존 기간 |
+|---------|-------------|------|----------|
+| Prometheus (mgmt) | local-path-retain | 10Gi | 7일 |
+| Loki (mgmt) | local-path-retain | 10Gi | 7일 |
+| Grafana (mgmt) | local-path-retain | 5Gi | 영구 |
+| Vault (mgmt) | local-path-retain | 10Gi | 영구 |
+| MinIO (mgmt) | local-path | 50Gi | 영구 |
 
 ---
 
-## 6. 관찰성 아키텍처
+## 7. 보안 아키텍처
 
-### 6.1 Azure Monitor + Container Insights
-
-> 📎 **코드 참조**: `azure/modules/observability/main.tf`, `azure/modules/aks/main.tf` (oms_agent)
+### 7.1 보안 계층 모델
 
 ```mermaid
 flowchart TB
-    subgraph Clusters["AKS 클러스터 (3개)"]
-        subgraph mgmt["AKS-mgmt"]
-            ama1["oms_agent<br/>(Container Insights)"]
-        end
-        subgraph app1["AKS-app1"]
-            ama2["oms_agent<br/>(Container Insights)"]
-        end
-        subgraph app2["AKS-app2"]
-            ama3["oms_agent<br/>(Container Insights)"]
-        end
+    subgraph L1["L1. 클러스터 접근 제어"]
+        access["RBAC, ServiceAccount<br/>kubeconfig 관리"]
     end
 
-    subgraph Analytics["Log Analytics Workspace"]
-        LAW["law-k8s-demo<br/>SKU: PerGB2018<br/>보존: 30일 | 일일: 5GB"]
-        CI["ContainerInsights<br/>Solution"]
+    subgraph L2["L2. 워크로드 보안 (2-Layer)"]
+        PSA["PSA<br/>네임스페이스 레벨 기본 경계"]
+        Kyverno["Kyverno<br/>워크로드별 세부 정책<br/>(app 클러스터만)"]
     end
 
-    subgraph Outputs["출력"]
-        Monitor["Azure Monitor<br/>Dashboard"]
-        Alert["Alert Rules"]
+    subgraph L3["L3. 네트워크 보안"]
+        netpol["Cilium Network Policy<br/>기본 deny, 명시적 allow"]
     end
 
-    ama1 --> LAW
-    ama2 --> LAW
-    ama3 --> LAW
-    LAW --> CI
-    LAW --> Monitor
-    LAW --> Alert
+    subgraph L4["L4. 시크릿 관리"]
+        secrets["Vault + External Secrets Operator"]
+    end
 
-    style Clusters fill:#e3f2fd
-    style Analytics fill:#fff3e0
-    style Outputs fill:#e8f5e9
+    subgraph L5["L5. 런타임 보안"]
+        runtime["Falco (app 클러스터)<br/>eBPF 이상 행위 탐지"]
+        tetragon["Tetragon (전 클러스터)<br/>eBPF 커널레벨 보안"]
+    end
+
+    subgraph L6["L6. 취약점 스캔"]
+        trivy["Trivy Operator (mgmt)<br/>이미지/K8s/IaC 스캔"]
+    end
+
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6
 ```
 
-### 6.2 Terraform 리소스
+### 7.2 PSA 정책 매핑
 
-> 📎 **코드 참조**: `azure/modules/observability/main.tf`
+| 네임스페이스 | enforce | audit | warn | 비고 |
+|------------|---------|-------|------|------|
+| **기본값** | baseline | restricted | restricted | |
+| kube-system | 예외 | - | - | 시스템 컴포넌트 |
+| cilium-system | 예외 | - | - | CNI 권한 필요 |
+| monitoring | 예외 | - | - | Node Exporter |
+| vault | 예외 | - | - | IPC Lock 필요 |
 
-| 리소스 | 이름 | 설정 |
-|--------|------|------|
-| `azurerm_log_analytics_workspace` | `law-k8s-demo` | SKU: PerGB2018, retention: 30일, daily_quota: 5GB |
-| `azurerm_log_analytics_solution` | `ContainerInsights` | Publisher: Microsoft, Product: OMSGallery/ContainerInsights |
+> 구현: `templates/cloud-init-k8s.yaml.tpl` (PSA admission config)
 
-### 6.3 AKS 연동
+### 7.3 Kyverno 정책 (app 클러스터만)
 
-> 📎 **코드 참조**: `azure/modules/aks/main.tf` - `oms_agent` 블록
+| 정책 | 모드 | 설명 | 구현 |
+|-----|------|------|------|
+| 이미지 레지스트리 제한 | enforce | localhost:8443, docker.io/library, registry.k8s.io, quay.io 허용 | `scripts/install-kyverno.sh` |
+| 리소스 제한 필수 | enforce | requests/limits 필수 | `scripts/install-kyverno.sh` |
+| 권한 있는 컨테이너 금지 | enforce | privileged: false | `scripts/install-kyverno.sh` |
+| 라벨 필수 | audit | app, version 라벨 | `scripts/install-kyverno.sh` |
 
-```hcl
-oms_agent {
-  log_analytics_workspace_id = var.log_analytics_workspace_id
-}
+### 7.4 시크릿 관리 흐름
+
+```mermaid
+flowchart LR
+    Vault["Vault<br/>(mgmt, standalone)"]
+    ESO["External Secrets<br/>Operator (전 클러스터)"]
+    Secret["K8s Secret<br/>(자동 동기화)"]
+    Pod["Pod"]
+
+    Vault --> ESO --> Secret --> Pod
 ```
 
-3개 클러스터 모두 동일한 Log Analytics Workspace에 연결되어 중앙 관찰성을 제공합니다.
+- **Vault**: mgmt 클러스터에 standalone 모드로 설치, LoadBalancer 서비스
+- **ESO**: 전 클러스터에 설치, ClusterSecretStore가 Vault를 참조
+- **refreshInterval**: 1h (C3 계약)
 
-### 6.4 비용 관리
+### 7.5 Tetragon: eBPF 런타임 보안
 
-| 항목 | 설정값 | 코드 참조 |
-|-----|--------|----------|
-| 보존 기간 | 30일 | `azure/variables.tf` (`log_analytics_retention_days`) |
-| 일일 수집 제한 | 5GB | `azure/variables.tf` (`log_analytics_daily_quota_gb`) |
+| 항목 | 설명 |
+|-----|------|
+| **배치 범위** | 전체 클러스터 (DaemonSet) |
+| **기능** | 프로세스 실행/파일 접근/네트워크 이벤트를 커널 레벨에서 감지 |
+| **리소스** | ~100MB/노드 |
+| **설치** | `scripts/install-tetragon.sh` |
 
----
+### 7.6 Trivy Operator: 취약점 스캔
 
-## 7. GitOps 및 시크릿 관리
-
-### 7.1 ArgoCD (AKS-mgmt)
-
-> 📎 **코드 참조**: `azure/addons/values/argocd-values.yaml`, `azure/addons/install.sh`
-
-| 설정 | 값 |
-|-----|-----|
-| Helm Chart | `argo/argo-cd` |
-| 네임스페이스 | `argocd` |
-| 서비스 타입 | LoadBalancer |
-| Insecure 모드 | `server.insecure: true` (시연 환경) |
-| 설치 위치 | AKS-mgmt 클러스터만 |
-
-### 7.2 External Secrets Operator
-
-> 📎 **코드 참조**: `azure/addons/values/external-secrets-values.yaml`, `azure/addons/install.sh`
-
-| 설정 | 값 |
-|-----|-----|
-| Helm Chart | `external-secrets/external-secrets` |
-| 네임스페이스 | `external-secrets` |
-| ServiceAccount | `external-secrets-sa` |
-| Workload Identity | `azure.workload.identity/client-id` 어노테이션 |
-| CRD 자동 설치 | `installCRDs: true` |
-
-`install.sh`에서 Workload Identity Client ID를 `az identity show`로 자동 조회하여 Helm values에 주입합니다.
+| 항목 | 설명 |
+|-----|------|
+| **배치 범위** | mgmt 클러스터 |
+| **기능** | 컨테이너 이미지 CVE 스캔, K8s 리소스 감사 |
+| **리소스** | ~200MB |
+| **설치** | `scripts/install-platform-addons.sh` |
 
 ---
 
-## 8. 스토리지 아키텍처
+## 8. 관찰성 아키텍처
 
-### 8.1 Azure StorageClass (AKS 기본 제공)
+### 8.1 관찰성 스택
 
-| StorageClass | Disk 유형 | 성능 | 용도 |
-|-------------|----------|------|------|
-| **managed** (기본) | Azure Disk Standard | 500 IOPS | 일반 워크로드 |
-| **managed-premium** | Azure Disk Premium | 5000+ IOPS | 고성능 워크로드 |
-| **azurefile** | Azure Files | 공유 스토리지 | 멀티 Pod 동시 마운트 |
+| 영역 | 도구 | 배치 | 구현 |
+|-----|------|------|------|
+| **Metrics (mgmt)** | Prometheus Full + Thanos | mgmt | `scripts/install-prometheus-stack.sh`, `scripts/install-thanos.sh` |
+| **Metrics (app)** | Prometheus Agent Mode | app1/app2 | `scripts/install-prometheus-agent.sh` |
+| **Logs (mgmt)** | Loki (SingleBinary) | mgmt | `scripts/install-loki.sh` |
+| **Logs (app)** | Promtail | 전 클러스터 | `scripts/install-loki.sh` |
+| **Dashboard** | Grafana | mgmt | `scripts/install-prometheus-stack.sh` |
+| **Alerting** | Alertmanager | mgmt | `scripts/install-prometheus-stack.sh` |
+| **Network** | Hubble (UI + Relay) | 전 클러스터 | `scripts/install-cilium.sh` |
+| **AIOps** | K8sGPT Operator | mgmt | `scripts/install-platform-addons.sh` |
+| **비용** | OpenCost | mgmt | `scripts/install-platform-addons.sh` |
+| **리소스** | VPA + Goldilocks | mgmt | `scripts/install-platform-addons.sh` |
 
-### 8.2 노드 디스크
+### 8.2 데이터 흐름
 
-> 📎 **코드 참조**: `azure/modules/aks/main.tf` - `os_disk_size_gb`
+```mermaid
+flowchart LR
+    subgraph AppClusters["app1/app2 클러스터"]
+        PromAgent["Prometheus Agent<br/>(메트릭 수집, WAL 2h)"]
+        Promtail["Promtail<br/>(로그 수집)"]
+    end
 
-| Node Pool | OS Disk | 비고 |
-|-----------|---------|------|
-| System Pool | 30GB | AKS 필수 (각 클러스터 1노드) |
-| Spot Pool | 30GB | 워크로드 실행 (mgmt: 1, app: 2) |
+    subgraph MgmtCluster["mgmt 클러스터"]
+        PromFull["Prometheus Full<br/>(로컬 메트릭, 7d)"]
+        Thanos["Thanos Receive<br/>(장기 저장)"]
+        ThanosQuery["Thanos Query<br/>(통합 쿼리)"]
+        Loki["Loki<br/>(로그 저장, 7d)"]
+        Grafana["Grafana<br/>(시각화)"]
+        Alertmanager["Alertmanager<br/>(알림)"]
+    end
+
+    PromAgent -->|"remote_write"| Thanos
+    Promtail -->|"push"| Loki
+    PromFull --> ThanosQuery
+    Thanos --> ThanosQuery
+    ThanosQuery --> Grafana
+    Loki --> Grafana
+    PromFull --> Alertmanager
+```
+
+### 8.3 mgmt 장애 시 동작
+
+| 컴포넌트 | 동작 | 버퍼 시간 |
+|---------|------|----------|
+| **Prometheus Agent** | WAL 로컬 버퍼링, 복구 후 재전송 | 2시간 (C2) |
+| **Promtail** | positions 파일 + 버퍼 | 디스크 용량만큼 |
+| **External Secrets** | 캐시된 시크릿 유지 | refreshInterval 1h (C3) |
+
+### 8.4 AI 운영 도구 (AIOps)
+
+#### 8.4.1 개요
+
+AI 기반 운영 자동화 도구를 통해 클러스터 진단, 알림 조사, ChatOps를 지원합니다.
+
+| 도구 | 용도 | 배치 | 구현 상태 |
+|-----|------|------|---------|
+| **K8sGPT** | 클러스터 문제 자동 진단 | mgmt | ✅ 자동 설치 |
+| **HolmesGPT (Robusta)** | Prometheus 알림 RCA | mgmt | ✅ 자동 설치 |
+| **Botkube** | Slack 클러스터 관리 | mgmt | ⚠️ 선택적 (Slack 토큰 필요) |
+| **LocalAI** | 오픈소스 LLM 백엔드 | mgmt | ✅ 자동 설치 (K8sGPT에서 공유) |
+
+#### 8.4.2 K8sGPT - 클러스터 진단
+
+**아키텍처**:
+```mermaid
+flowchart LR
+    K8s[Kubernetes API<br/>Pod/Event/Log] --> K8sGPT[K8sGPT Operator]
+    K8sGPT --> LocalAI[LocalAI<br/>LLM Backend]
+    LocalAI --> Analysis[근본 원인 분석]
+    Analysis --> Result[Kubernetes Event<br/>또는 Slack 알림]
+```
+
+**기능**:
+- Pod CrashLoopBackOff, OOMKilled, Pending 등 자동 진단
+- 에러 로그 분석 및 해결 방법 제시
+- K8s Event로 결과 저장
+
+**설치**:
+- Operator: `install-platform-addons.sh`에서 설치
+- LocalAI + K8sGPT CR: `install-k8sgpt.sh`에서 설치
+
+**리소스**:
+- K8sGPT Operator: ~128MB
+- LocalAI: ~2GB (CPU 모드, ggml-gpt4all-j 모델)
+
+**사용 예시**:
+```bash
+# K8sGPT 분석 결과 확인
+kubectl get results -n k8sgpt
+
+# 실시간 분석 로그
+kubectl logs -n k8sgpt deployment/k8sgpt-operator -f
+```
+
+#### 8.4.3 HolmesGPT (Robusta) - AI 기반 알림 조사
+
+**아키텍처**:
+```mermaid
+flowchart TB
+    Alert[Prometheus Alert] --> Alertmanager[Alertmanager<br/>Webhook]
+    Alertmanager --> Robusta[Robusta Runner]
+
+    subgraph "Data Correlation"
+        Robusta --> Prometheus[Prometheus<br/>메트릭 조회]
+        Robusta --> Loki[Loki<br/>로그 조회]
+        Robusta --> Tempo[Tempo<br/>트레이스 조회]
+    end
+
+    Prometheus --> LocalAI
+    Loki --> LocalAI
+    Tempo --> LocalAI
+    LocalAI[LocalAI LLM] --> RCA[근본 원인 분석<br/>Root Cause Analysis]
+    RCA --> Slack[Slack 알림<br/>(선택적)]
+    RCA --> Event[Kubernetes Event]
+```
+
+**기능**:
+- Prometheus 알림 자동 수신
+- 관련 메트릭, 로그, 트레이스 자동 수집
+- AI 기반 근본 원인 분석 (RCA)
+- Slack 또는 Kubernetes Event로 결과 전달
+
+**데이터 소스 통합**:
+```yaml
+observability:
+  prometheus:
+    url: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
+  loki:
+    url: http://loki.monitoring.svc:3100
+  tempo:
+    url: http://tempo.monitoring.svc:3100
+```
+
+**설치**: `install-holmesgpt.sh`
+
+**리소스**:
+- Robusta Runner: ~512MB
+
+**사용 예시**:
+```bash
+# Robusta 분석 로그 확인
+kubectl logs -n robusta deployment/robusta-runner -f | grep holmes
+
+# 테스트 알림 생성
+kubectl run test-crash --image=busybox --restart=Never -- sh -c 'exit 1'
+```
+
+#### 8.4.4 Botkube - ChatOps (Slack 통합)
+
+**아키텍처**:
+```mermaid
+flowchart LR
+    User[Slack 사용자] -->|@botkube get pods| Slack[Slack API]
+    Slack --> Botkube[Botkube<br/>mgmt 클러스터]
+    Botkube --> K8s[Kubernetes API]
+    K8s --> Botkube
+    Botkube --> Slack
+    Slack --> User
+
+    K8s -->|Event Watch| Botkube
+    Botkube -->|Auto Notification| Slack
+```
+
+**기능**:
+- Slack에서 직접 kubectl 명령 실행
+- Read-only 명령 (get, describe, logs, top): 즉시 실행
+- Admin 명령 (delete, restart, scale): 승인 플로우
+- Kubernetes 이벤트 자동 알림 (Error, Warning)
+
+**RBAC 설계**:
+
+| 권한 레벨 | 허용 동작 | 승인 필요 |
+|---------|----------|---------|
+| **Read-Only** | get, describe, logs, top | ❌ 즉시 실행 |
+| **Admin** | delete, edit, apply, restart, scale | ✅ 승인 필요 |
+
+**설치**:
+- `install-botkube.sh` (수동, Slack Bot Token 필요)
+- main.tf에서 주석 처리됨 (선택적 설치)
+
+**리소스**: ~256MB
+
+**Slack 설정 요구사항**:
+1. Slack App 생성: https://api.slack.com/apps
+2. Bot Token Scopes: `app_mentions:read`, `chat:write`, `channels:read`, `files:write`
+3. Bot Token 발급 (xoxb-...)
+4. Slack 채널 생성 (예: #kubernetes-alerts)
+5. 봇 초대: `/invite @Botkube`
+
+**사용 예시**:
+```
+Slack Channel #kubernetes-alerts:
+
+User: @botkube get pods -n production
+Botkube: [Pod 목록 표시]
+
+User: @botkube logs my-app-xyz -n production --tail 50
+Botkube: [로그 표시]
+
+User: @botkube restart deployment my-app -n production
+Botkube: ⚠️ Admin 명령어입니다. ✅ 이모지로 승인해주세요.
+```
+
+#### 8.4.5 LocalAI - 오픈소스 LLM 백엔드
+
+**목적**: 외부 AI API (OpenAI, Gemini) 없이 로컬에서 LLM 실행
+
+**특징**:
+- OpenAI API 호환 인터페이스
+- CPU 전용 모드 (GPU 불필요)
+- ggml-gpt4all-j 모델 (경량, ~4GB)
+- K8sGPT + HolmesGPT 공유 사용
+
+**제약 사항**:
+- CPU 모드로 인한 느린 추론 속도 (~10-30초/요청)
+- 프로덕션 환경에서는 외부 LLM API 권장
+
+**배포**:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localai
+  namespace: localai
+spec:
+  containers:
+  - name: localai
+    image: quay.io/go-skynet/local-ai:latest
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 1000m
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+```
+
+**설치**: `install-k8sgpt.sh`
+
+**엔드포인트**:
+- 서비스: `http://localai.localai.svc.cluster.local:8080/v1`
+- LoadBalancer 미사용 (클러스터 내부 전용)
+
+#### 8.4.6 AI 도구 통합 플로우
+
+**전체 워크플로우**:
+
+1. **K8sGPT**: Pod 에러 → K8sGPT 감지 → LocalAI 분석 → Event 저장
+2. **HolmesGPT**: Prometheus 알림 → Robusta 수신 → Prometheus/Loki/Tempo 데이터 수집 → LocalAI 분석 → Slack/Event 전달
+3. **Botkube**: Slack 명령 → Kubernetes API → 결과 Slack 전달 + K8s Event 자동 알림
+
+**리소스 영향**:
+
+| 구성 요소 | RAM | 설치 위치 |
+|----------|-----|---------|
+| K8sGPT Operator | 128MB | mgmt |
+| LocalAI | 2-4GB | mgmt (공유) |
+| Robusta Runner | 512MB | mgmt |
+| Botkube | 256MB | mgmt (선택) |
+| **총합** | ~3-5GB | mgmt-worker-0 |
+
+**권장 사항**:
+- mgmt-worker-0 메모리를 8GB → 10GB로 증설 권장
+- LocalAI 대신 외부 LLM API 사용 시 메모리 절약 (~2GB)
 
 ---
 
-## 9. 장애 도메인 및 가용성
+## 9. 장애 도메인 및 복원력
 
 ### 9.1 장애 영향 매트릭스
 
-| 장애 유형 | 영향 | 완화 | 코드 참조 |
-|----------|------|------|----------|
-| **Spot VM 회수** | 해당 노드 Pod 재스케줄링 | PDB + node_taints로 격리 | `modules/aks/main.tf` |
-| **AKS Control Plane 장애** | API Server 불가 (워크로드 계속 실행) | Azure 자동 복구 (SLA 99.5%) | - |
-| **Key Vault 장애** | 새 시크릿 조회 불가 | ESO 캐시 유지 (SLA 99.99%) | `modules/keyvault/main.tf` |
-| **Log Analytics 장애** | 로그/메트릭 수집 중단 | Azure 자동 복구 | `modules/observability/main.tf` |
+| 장애 컴포넌트 | 영향 범위 |
+|-------------|----------|
+| **mgmt 클러스터 전체 다운** | 시크릿 갱신 불가 (캐시로 동작) |
+| | 중앙 메트릭/로그 조회 불가 (로컬 수집 지속) |
+| | 새 인증서 발급 불가 (기존 인증서로 동작) |
+| | GitOps 배포 중단 (기존 워크로드는 정상 실행) |
+| | **app1/app2 워크로드 정상 실행** (C1) |
+| **Vault 다운** | 새 시크릿 발급 불가, ESO 캐시로 동작 |
+| **ArgoCD 다운** | GitOps 배포 중단, 기존 워크로드 정상 |
 
-### 9.2 Spot VM 회수 대응
+### 9.2 Chaos Mesh: 장애 격리 검증
 
-> 📎 **코드 참조**: `azure/modules/aks/main.tf` - Spot Node Pool 설정
+mgmt 클러스터에 Chaos Mesh를 배치하여 C1 불변 조건을 실증 검증합니다.
 
-| 설정 | 값 | 효과 |
-|-----|-----|------|
-| `eviction_policy` | `Delete` | 회수 시 노드 삭제 → 새 노드 자동 생성 |
-| `spot_max_price` | `-1` (기본값) | On-Demand 가격까지 허용 (회수 최소화) |
-| `node_taints` | `spot:NoSchedule` | tolerations 없는 Pod는 Spot에 스케줄 불가 |
-| `node_labels` | `scalesetpriority=spot` | nodeSelector로 명시적 배치 가능 |
+| 테스트 시나리오 | Chaos 유형 | 검증 항목 |
+|---------------|-----------|----------|
+| mgmt CP 네트워크 격리 | NetworkChaos | app1/app2 워크로드 정상 실행 확인 |
+| Vault Pod 강제 종료 | PodChaos | External Secrets 캐시 동작 확인 |
+| Prometheus 네트워크 지연 | NetworkChaos | Agent WAL 버퍼링 확인 |
 
-**회수 시나리오**: 30초 전 알림 → Node Drain → 새 노드 자동 프로비저닝
+### 9.3 복구 우선순위
 
-### 9.3 복구 시나리오
-
-| 시나리오 | 복구 방법 | 예상 RTO |
-|---------|----------|---------|
-| 리소스 삭제 | ArgoCD 동기화 | 5분 |
-| AKS 클러스터 장애 | `terraform apply` (자동 재생성) | 30분 |
-| 전체 인프라 장애 | `terraform destroy && terraform apply` + `bash install.sh` | 1시간 |
-| 리전 장애 | DR 리전에 `terraform apply` (변수만 변경) | 2시간+ |
-
----
-
-## 10. 비용 최적화 전략
-
-### 10.1 예상 비용 (시연 환경)
-
-> 📎 **코드 참조**: `azure/variables.tf` - Spot/Log Analytics 관련 변수
-
-| 항목 | 월 비용 | 코드 참조 |
-|-----|--------|----------|
-| AKS Control Plane (3개) | 무료 | AKS Free Tier |
-| VM: Spot 5노드 (D2s_v3) | ~$50 | `modules/aks/main.tf` (`spot_max_price`) |
-| Azure Disk (System+Spot, 240GB) | ~$10 | `modules/aks/main.tf` (`os_disk_size_gb = 30`) |
-| Log Analytics | ~$5 | `modules/observability/main.tf` (`daily_quota_gb = 5`) |
-| Key Vault | ~$1 | `modules/keyvault/main.tf` |
-| **합계** | **~$60-80/월** | |
-
-### 10.2 비용 절감 전략
-
-| 전략 | 절감 효과 | 코드 참조 |
-|-----|----------|----------|
-| Spot VM 사용 | 최대 ~70% (변동) | `modules/aks/main.tf` |
-| AKS Free Tier | Control Plane 무료 | AKS 기본 |
-| Log Analytics 수집 제한 | 예상치 못한 비용 방지 | `modules/observability/main.tf` |
-| 비업무시간 클러스터 중지 | ~60% 추가 | `az aks stop/start` |
-
-### 10.3 프로덕션 전환 시 추가 비용
-
-| 변경 | 추가 비용 | 효과 |
-|-----|----------|------|
-| mgmt Spot → On-Demand | +$50-80/월 | 플랫폼 안정성 |
-| 멀티 AZ 구성 | +$30-50/월 | 가용성 향상 |
-| AKS Uptime SLA (Standard tier) | +$73/월 | 99.95% SLA |
-| Private Cluster | +네트워크 비용 | 보안 강화 |
+| 우선순위 | 컴포넌트 | RTO |
+|---------|---------|-----|
+| **P0** | mgmt Control Plane | 15분 |
+| **P1** | Vault, ArgoCD | 30분 |
+| **P2** | Thanos, Loki, Grafana, Prometheus | 1시간 |
 
 ---
 
-## 11. 백업 및 DR 전략
+## 10. 백업 및 DR 전략
 
-### 11.1 백업 방법
+### 10.1 상태 계층 및 복구 전략
 
-| 계층 | 내용 | 서비스 | 코드 참조 |
-|-----|------|-------|----------|
-| 인프라 설정 | AKS + VNet + Key Vault 구성 | Terraform State (Azure Storage) | `azure/versions.tf` (backend) |
-| 워크로드 | Deployment, ConfigMap 등 | ArgoCD GitOps (Git 원본) | `addons/values/argocd-values.yaml` |
-| 시크릿 | Key Vault 데이터 | Key Vault 자동 복제 (Azure 관리) | `modules/keyvault/main.tf` |
+| 계층 | 내용 | 백업 방법 | 복구 방법 | RPO |
+|-----|------|----------|----------|-----|
+| **L1** | etcd | etcdctl 스냅샷 | etcd 복원 | 24h |
+| **L2** | PV 데이터 | Velero + node-agent | Velero restore | 24h |
+| **L3** | MinIO 데이터 | 버전관리 | MinIO 복원 | 실시간 |
+| **L4** | Git 매니페스트 | Git 원격 저장소 | ArgoCD 동기화 | 커밋 시 |
 
-### 11.2 Terraform State 원격 관리
+### 10.2 백업 아키텍처
 
-> 📎 **코드 참조**: `azure/versions.tf` - backend 블록
+```mermaid
+flowchart TB
+    subgraph Clusters["클러스터"]
+        mgmt["mgmt"]
+        app1["app1"]
+        app2["app2"]
+    end
 
-```hcl
-backend "azurerm" {
-  resource_group_name  = "rg-terraform-state"
-  storage_account_name = "stterraformstate"
-  container_name       = "tfstate"
-  key                  = "k8s-demo.tfstate"
-}
+    subgraph VeleroAgents["Velero 에이전트"]
+        v1["Velero"]
+        v2["Velero"]
+        v3["Velero"]
+    end
+
+    subgraph Storage["백업 저장소"]
+        minio["MinIO<br/>(mgmt, 50Gi)"]
+    end
+
+    mgmt --> v1 --> minio
+    app1 --> v2 --> minio
+    app2 --> v3 --> minio
 ```
 
+- 각 클러스터별 고유 prefix (`mgmt/`, `app1/`, `app2/`)
+- **구현**: `scripts/install-minio.sh`, `scripts/install-velero.sh`
+
 ---
 
-## 부록: 실행 명령어 참조
+## 11. 리소스 계획
 
-```bash
-# 사전 준비
-az login
-az account set --subscription "<subscription-id>"
+### 11.1 호스트 RAM 전체 버짓 (64GB)
 
-# 전체 인프라 생성
-cd azure
-terraform init && terraform apply
+| 계층 | 구성요소 | RAM |
+|-----|---------|-----|
+| **호스트** | macOS 커널 + 시스템 | 5.0 GB |
+| | Multipass 데몬 | 0.5 GB |
+| | IDE, 브라우저, Terraform CLI 등 | 8.5 GB |
+| **호스트 소계** | | **14.0 GB** |
+| **VM** | 6개 Multipass VM | **26.0 GB** |
+| **합계** | | **40.0 GB** |
+| **전체 여유** | | **24.0 GB** |
 
-# 플랫폼 애드온 설치
-bash addons/install.sh
+### 11.2 VM 할당
 
-# kubeconfig 설정
-bash scripts/setup-kubeconfig.sh
+| 클러스터 | 노드 | RAM | CPU | 디스크 |
+|---------|------|-----|-----|--------|
+| mgmt | mgmt-cp | 4GB | 2 | 40GB |
+| mgmt | mgmt-worker-0 | 8GB | 2 | 60GB |
+| app1 | app1-cp | 3GB | 2 | 30GB |
+| app1 | app1-worker-0 | 4GB | 2 | 40GB |
+| app2 | app2-cp | 3GB | 2 | 30GB |
+| app2 | app2-worker-0 | 4GB | 2 | 40GB |
+| **합계** | | **26GB** | **12** | **240GB** |
 
-# 전체 인프라 삭제
-terraform destroy
-# 또는 빠른 삭제: bash scripts/cleanup.sh
+### 11.3 VM 내부 실사용 상세 (병목 분석)
+
+#### mgmt-cp (4GB)
+
+| 구성요소 | RAM |
+|----------|-----|
+| OS + 커널 | 300 MB |
+| kubelet + containerd | 200 MB |
+| kube-apiserver | 400 MB |
+| etcd | 300 MB |
+| kube-scheduler + controller-manager | 150 MB |
+| CoreDNS x2 | 60 MB |
+| Cilium agent | 200 MB |
+| Tetragon agent | 100 MB |
+| MetalLB speaker | 30 MB |
+| **소계 / 여유** | **~1.7 GB / ~2.3 GB** |
+
+#### mgmt-worker-0 (8GB) -- 병목 노드
+
+| 구성요소 | 카테고리 | RAM |
+|----------|----------|-----|
+| OS + 커널 | 시스템 | 300 MB |
+| kubelet + containerd | 시스템 | 200 MB |
+| Cilium agent + operator + Hubble UI | CNI | 350 MB |
+| Tetragon agent | 보안 | 100 MB |
+| MetalLB controller + speaker | 네트워크 | 80 MB |
+| Vault (standalone + injector) | 시크릿 | 400 MB |
+| ArgoCD (server+repo+controller+redis) | GitOps | 500 MB |
+| Prometheus + Alertmanager | 모니터링 | 700 MB |
+| Grafana | 모니터링 | 256 MB |
+| node-exporter + kube-state-metrics | 모니터링 | 80 MB |
+| Thanos (Receive + Query + Compactor) | 모니터링 | 512 MB |
+| Loki (SingleBinary) | 로깅 | 400 MB |
+| Promtail | 로깅 | 100 MB |
+| Tempo | 트레이싱 | 256 MB |
+| OpenTelemetry Collector | 트레이싱 | 256 MB |
+| Istio (Istiod + Ingress Gateway) | Service Mesh | 650 MB |
+| Kiali | Service Mesh 관찰성 | 128 MB |
+| Trivy Operator | 보안 | 200 MB |
+| K8sGPT Operator | AIOps | 128 MB |
+| LocalAI (LLM 백엔드) | AIOps | 2048 MB |
+| HolmesGPT (Robusta Runner) | AIOps | 512 MB |
+| Botkube (선택적) | ChatOps | 256 MB |
+| OpenCost | 비용 | 100 MB |
+| VPA + Goldilocks | 최적화 | 300 MB |
+| Chaos Mesh | 카오스 | 200 MB |
+| cert-manager | PKI | 100 MB |
+| ESO | 시크릿 | 100 MB |
+| MinIO | 스토리지 | 256 MB |
+| Velero + node-agent | 백업 | 256 MB |
+| **소계 (AI 도구 포함)** | | **~9.0 GB** |
+| **소계 (AI 도구 제외)** | | **~5.9 GB** |
+| **여유 (현재 8GB 기준)** | | **⚠️ 부족 (-1.0 GB)** |
+
+> **권장 조치**: mgmt-worker-0를 **8GB → 10GB**로 증설 필요 (AI 도구 사용 시)
+
+#### app1-cp / app2-cp (각 3GB)
+
+| 구성요소 | RAM |
+|----------|-----|
+| OS + 커널 | 300 MB |
+| kubelet + containerd | 200 MB |
+| kube-apiserver + etcd + scheduler + cm | 750 MB |
+| CoreDNS x2 | 60 MB |
+| Cilium agent | 200 MB |
+| Tetragon agent | 100 MB |
+| MetalLB speaker | 30 MB |
+| **소계 / 여유** | **~1.6 GB / ~1.4 GB** |
+
+#### app1-worker-0 / app2-worker-0 (각 4GB)
+
+| 구성요소 | RAM |
+|----------|-----|
+| OS + 커널 | 300 MB |
+| kubelet + containerd | 200 MB |
+| Cilium agent + operator + Hubble | 300 MB |
+| Tetragon agent | 100 MB |
+| MetalLB controller + speaker | 80 MB |
+| Prometheus Agent | 200 MB |
+| Promtail | 100 MB |
+| Kyverno | 200 MB |
+| Falco | 200 MB |
+| cert-manager | 100 MB |
+| ESO | 50 MB |
+| Velero + node-agent | 128 MB |
+| node-exporter | 30 MB |
+| **소계** | **~2.0 GB** |
+| **애플리케이션용 여유** | **~2.0 GB** |
+
+---
+
+## 12. 플랫폼 부가 도구
+
+### 12.1 도구 개요
+
+| 도구 | 카테고리 | 배치 | RAM | 설치 스크립트 |
+|-----|---------|------|-----|-------------|
+| **Tetragon** | eBPF 보안 | 전 클러스터 | ~100MB/노드 | `install-tetragon.sh` |
+| **Trivy Operator** | 취약점 스캔 | mgmt | ~200MB | `install-platform-addons.sh` |
+| **K8sGPT** | AI 진단 | mgmt | ~128MB | `install-platform-addons.sh` |
+| **OpenCost** | 비용 가시화 | mgmt | ~100MB | `install-platform-addons.sh` |
+| **VPA + Goldilocks** | 리소스 최적화 | mgmt | ~300MB | `install-platform-addons.sh` |
+| **Chaos Mesh** | 장애 주입 | mgmt | ~200MB | `install-platform-addons.sh` |
+
+---
+
+## 13. Terraform 파이프라인
+
+### 13.1 전체 의존성 그래프
+
+```
+cloud_init ─→ vm(6개) ─→ init_mgmt ─→ join_mgmt ──────┐
+                          init_app1 ─→ join_app1 ───────┤
+                          init_app2 ─→ join_app2 ───────┘
+                                                        │
+                                              merge_kubeconfigs
+                                                        │
+                                                install_cilium
+                                               ┌────────┼────────┐
+                                     install_tetragon   │   install_gateway_api
+                                               │  install_metallb
+                                               │        │
+                                               │  setup_clustermesh
+                                     ┌─────────┼────────┼─────────────┐
+                              install_cert_manager  install_kyverno  install_falco
+                                     │               (app only)     (app only)
+                              install_platform_addons
+                              ┌──────┼──────┬──────┬─────────┐
+                       install_k8sgpt │  install_thanos  install_argocd  install_vault
+                              │       │      │                │
+                       (LocalAI +     │  install_prometheus_stack  install_eso
+                        K8sGPT CR)    │      │
+                                      │  install_loki
+                                      │      │
+                              install_holmesgpt
+                           (Prometheus/Loki/Tempo 통합)
+                                      │
+                              install_minio
+                                      │
+                              install_velero
+                                      │
+                          install_prometheus_agent
+
+[선택적]  install_botkube (수동, Slack 토큰 필요)
 ```
 
-## 부록: 프로덕션 전환 시 고려사항
+### 13.2 설치 스크립트 목록
 
-| 영역 | 현재 (시연) | 프로덕션 권장 |
-|-----|-----------|-------------|
-| **Tier 1 노드** | Spot VM | On-Demand |
-| **AKS Tier** | Free (99.5%) | Standard (99.95%) |
-| **API 접근** | Public + NSG | Private Cluster |
-| **가용 영역** | 단일 Zone | 멀티 AZ |
-| **백업** | Terraform State + GitOps만 | + Velero + Azure Blob |
-| **모니터링** | Container Insights만 | + Prometheus + Grafana |
-| **Key Vault** | Soft Delete 7일 | Purge Protection 활성 |
-| **Log Analytics** | 5GB/일 | 제한 해제 + 장기 보존 |
+| # | 스크립트 | 대상 | 의존성 |
+|---|---------|------|--------|
+| 1 | `cluster-init.sh` | 각 CP | VM 생성 후 |
+| 2 | `cluster-join.sh` | 각 Worker | init 후 |
+| 3 | `merge-kubeconfigs.sh` | 호스트 | 전체 join 후 |
+| 4 | `install-cilium.sh` | 전 클러스터 | kubeconfig 병합 후 |
+| 5 | `install-tetragon.sh` | 전 클러스터 | Cilium 후 |
+| 6 | `install-gateway-api.sh` | 전 클러스터 | Cilium 후 |
+| 7 | `install-metallb.sh` | 전 클러스터 | Cilium 후 |
+| 8 | `setup-clustermesh.sh` | 전 클러스터 | MetalLB 후 |
+| 9 | `install-cert-manager.sh` | 전 클러스터 | Cluster Mesh 후 |
+| 10 | `install-kyverno.sh` | app만 | Cluster Mesh 후 |
+| 11 | `install-falco.sh` | app만 | Cluster Mesh 후 |
+| 12 | `install-platform-addons.sh` | mgmt | Cluster Mesh + Tetragon 후 |
+| 13 | `install-k8sgpt.sh` | mgmt | Platform Addons 후 (LocalAI + K8sGPT CR) |
+| 14 | `install-vault.sh` | mgmt | Platform Addons 후 |
+| 15 | `install-thanos.sh` | mgmt | Platform Addons 후 |
+| 16 | `install-prometheus-stack.sh` | mgmt | Platform Addons 후 |
+| 17 | `install-argocd.sh` | mgmt | Cluster Mesh 후 |
+| 18 | `install-eso.sh` | 전 클러스터 | cert-manager + Vault 후 |
+| 19 | `install-holmesgpt.sh` | mgmt | Prometheus Stack + Loki + Tempo + K8sGPT 후 (LocalAI 공유) |
+| 20 | `install-botkube.sh` | mgmt (선택적) | 수동 실행 (Slack 토큰 필요) |
+| 21 | `install-minio.sh` | mgmt | Platform Addons 후 |
+| 22 | `install-loki.sh` | mgmt + app | Prometheus Stack 후 |
+| 23 | `install-prometheus-agent.sh` | app만 | Thanos 후 |
+| 24 | `install-velero.sh` | 전 클러스터 | MinIO 후 |
+| 25 | `verify-clusters.sh` | 검증 | 전체 완료 후 |
+| 26 | `delete-all.sh` | 정리 | 수동 실행 |
+
+**총 스크립트 수**: 26개 (자동 24개 + 수동 2개)
+
+---
+
+## 부록: 관련 문서
+
+| 문서 | 설명 |
+|-----|------|
+| [IMPLEMENTATION-GUIDE.md](IMPLEMENTATION-GUIDE.md) | Terraform, Helm, 설치 코드 |
+| [OPERATIONS-RUNBOOK.md](OPERATIONS-RUNBOOK.md) | 백업/복구/업그레이드 절차 |
+| [SMARTER-PROMPT.md](SMARTER-PROMPT.md) | SMART+ER 프롬프트 기반 요구사항 |
