@@ -5,41 +5,32 @@ set -euo pipefail
 # mgmt 클러스터에 Thanos Receive + Query 설치 (Prometheus Agent remote_write 수신)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-# Load credential management library
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
-
-MGMT_CONTEXT="kubernetes-admin@mgmt"
-KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${MGMT_CONTEXT}"
-KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${MGMT_CONTEXT}"
+# Setup
+setup_common_vars
 
 # Load MinIO credentials
-load_credentials || {
-  echo "ERROR: Credentials file not found. Run install-minio.sh first."
-  exit 1
-}
+load_credentials || error_exit "Credentials file not found. Run install-minio.sh first."
 
 # Helm repo 추가
-helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
-helm repo update bitnami
+add_helm_repo "bitnami" "${HELM_REPO_BITNAMI}"
 
-echo "=== Creating Thanos Object Storage Config (MinIO) ==="
+log_info "Creating Thanos Object Storage Config (MinIO)"
 
 # MinIO를 object storage로 사용 (장기 보존)
-kubectl ${KC_KUBECTL} create secret generic thanos-objstore-config -n observability \
+ensure_namespace "${NAMESPACE_OBSERVABILITY}" "mgmt"
+
+$(get_kubectl_cmd mgmt) create secret generic thanos-objstore-config -n "${NAMESPACE_OBSERVABILITY}" \
   --from-literal=objstore.yml="$(cat <<EOF
 type: S3
 config:
   bucket: thanos
-  endpoint: minio.backup.svc.cluster.local:9000
+  endpoint: minio.${NAMESPACE_BACKUP}.svc.cluster.local:9000
   access_key: ${MINIO_ROOT_USER}
   secret_key: ${MINIO_ROOT_PASSWORD}
   insecure: true
@@ -49,13 +40,12 @@ config:
     response_header_timeout: 2m
     insecure_skip_verify: true
 EOF
-)" --dry-run=client -o yaml | kubectl ${KC_KUBECTL} apply -f -
+)" --dry-run=client -o yaml | $(get_kubectl_cmd mgmt) apply -f -
 
-echo "=== Installing Thanos on mgmt cluster ==="
+log_info "Installing Thanos on mgmt cluster"
 
-helm upgrade --install thanos bitnami/thanos \
-  --namespace observability --create-namespace \
-  ${KC} \
+$(get_helm_cmd mgmt) upgrade --install thanos bitnami/thanos \
+  --namespace "${NAMESPACE_OBSERVABILITY}" \
   --set receive.enabled=true \
   --set receive.replicaCount=1 \
   --set receive.persistence.enabled=true \
