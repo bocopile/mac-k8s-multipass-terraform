@@ -1,0 +1,148 @@
+#!/bin/bash
+# Common Shell Script Library
+# Provides reusable functions for all installation scripts
+
+set -euo pipefail
+
+# Error handler
+error_exit() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+# Info message
+log_info() {
+  echo "[INFO] $*"
+}
+
+# Warning message
+log_warn() {
+  echo "[WARN] $*" >&2
+}
+
+# Check if command exists
+require_command() {
+  local cmd="$1"
+  if ! command -v "$cmd" &>/dev/null; then
+    error_exit "Required command not found: $cmd"
+  fi
+}
+
+# Check if file exists
+require_file() {
+  local file="$1"
+  if [[ ! -f "$file" ]]; then
+    error_exit "Required file not found: $file"
+  fi
+}
+
+# Validate all required commands
+validate_prerequisites() {
+  log_info "Validating prerequisites..."
+
+  local required_commands=("kubectl" "helm" "jq")
+  for cmd in "${required_commands[@]}"; do
+    require_command "$cmd"
+  done
+
+  log_info "All prerequisites validated ✓"
+}
+
+# Setup common variables
+setup_common_vars() {
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  GENERATED_DIR="${SCRIPT_DIR}/../generated"
+  KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
+  CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
+
+  require_file "${KUBECONFIG_MULTI}"
+  require_file "${CLUSTERS_JSON}"
+}
+
+# Get kubectl context helper
+kubectl_ctx() {
+  local cluster="$1"
+  echo "--kubeconfig ${KUBECONFIG_MULTI} --context kubernetes-admin@${cluster}"
+}
+
+# Get helm context helper
+helm_ctx() {
+  local cluster="$1"
+  echo "--kubeconfig ${KUBECONFIG_MULTI} --kube-context kubernetes-admin@${cluster}"
+}
+
+# Wait for deployment to be ready
+wait_for_deployment() {
+  local namespace="$1"
+  local deployment="$2"
+  local timeout="${3:-180}"
+  local context="${4:-kubernetes-admin@mgmt}"
+
+  log_info "Waiting for deployment ${namespace}/${deployment}..."
+
+  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${context}" \
+    -n "${namespace}" wait --for=condition=available \
+    --timeout="${timeout}s" "deployment/${deployment}" || {
+    log_warn "Deployment ${deployment} not ready within ${timeout}s"
+    return 1
+  }
+
+  log_info "Deployment ${namespace}/${deployment} is ready ✓"
+}
+
+# Wait for statefulset to be ready
+wait_for_statefulset() {
+  local namespace="$1"
+  local statefulset="$2"
+  local timeout="${3:-180}"
+  local context="${4:-kubernetes-admin@mgmt}"
+
+  log_info "Waiting for statefulset ${namespace}/${statefulset}..."
+
+  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${context}" \
+    -n "${namespace}" wait --for=jsonpath='{.status.readyReplicas}'=1 \
+    --timeout="${timeout}s" "statefulset/${statefulset}" || {
+    log_warn "StatefulSet ${statefulset} not ready within ${timeout}s"
+    return 1
+  }
+
+  log_info "StatefulSet ${namespace}/${statefulset} is ready ✓"
+}
+
+# Add Helm repo
+add_helm_repo() {
+  local name="$1"
+  local url="$2"
+
+  log_info "Adding Helm repository: ${name}"
+  helm repo add "${name}" "${url}" 2>/dev/null || true
+  helm repo update "${name}"
+}
+
+# Wait for LoadBalancer IP
+wait_for_lb_ip() {
+  local namespace="$1"
+  local service="$2"
+  local timeout="${3:-30}"
+  local context="${4:-kubernetes-admin@mgmt}"
+
+  log_info "Waiting for LoadBalancer IP: ${namespace}/${service}"
+
+  local ip=""
+  for i in $(seq 1 "$timeout"); do
+    ip=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${context}" \
+      -n "${namespace}" get svc "${service}" \
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+
+    if [[ -n "$ip" ]]; then
+      echo "$ip"
+      return 0
+    fi
+
+    log_info "Waiting for IP... (${i}/${timeout})"
+    sleep 2
+  done
+
+  log_warn "LoadBalancer IP not assigned after ${timeout} attempts"
+  return 1
+}

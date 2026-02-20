@@ -43,6 +43,13 @@ secrets.env
 .env
 .env.*
 
+# Credentials (SECURITY: Never commit)
+.credentials.env
+**/vault-root-token
+**/vault-init.json
+**/*.secret
+**/.credentials
+
 # IDE / editor files
 .vscode/
 .idea/*
