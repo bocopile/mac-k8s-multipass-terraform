@@ -5,17 +5,15 @@ set -euo pipefail
 # 전 클러스터에 NetworkPolicy 적용 (네트워크 보안 강화)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
-NETWORK_POLICIES_TEMPLATE="${SCRIPT_DIR}/../../templates/network-policies.yaml"
 
-# Load common library
+# Load libraries
 source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  error_exit "clusters.json not found at ${CLUSTERS_JSON}"
-fi
+# Setup
+setup_common_vars
+
+NETWORK_POLICIES_TEMPLATE="${SCRIPT_DIR}/../../templates/network-policies.yaml"
 
 if [[ ! -f "${NETWORK_POLICIES_TEMPLATE}" ]]; then
   error_exit "network-policies.yaml template not found"
@@ -26,16 +24,15 @@ log_info "Applying NetworkPolicies to all clusters..."
 CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
 
 for CLUSTER in ${CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
   log_info "Processing cluster: ${CLUSTER}"
 
   # Ensure namespace labels exist (required for namespaceSelector)
   for NS in monitoring observability security backup vault argocd kube-system; do
-    if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+    if $(get_kubectl_cmd "${CLUSTER}") \
        get namespace "${NS}" &>/dev/null; then
 
       log_info "  Labeling namespace: ${NS}"
-      kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+      $(get_kubectl_cmd "${CLUSTER}") \
         label namespace "${NS}" \
         "kubernetes.io/metadata.name=${NS}" \
         --overwrite 2>/dev/null || true
@@ -46,52 +43,52 @@ for CLUSTER in ${CLUSTERS}; do
   log_info "  Applying NetworkPolicies to ${CLUSTER}"
 
   # Apply monitoring namespace policies
-  if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-     get namespace monitoring &>/dev/null; then
-    kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-      apply -f "${NETWORK_POLICIES_TEMPLATE}" -n monitoring 2>/dev/null || true
+  if $(get_kubectl_cmd "${CLUSTER}") \
+     get namespace "${NAMESPACE_MONITORING}" &>/dev/null; then
+    $(get_kubectl_cmd "${CLUSTER}") \
+      apply -f "${NETWORK_POLICIES_TEMPLATE}" -n "${NAMESPACE_MONITORING}" 2>/dev/null || true
   fi
 
   # Apply observability namespace policies (mgmt only)
   if [[ "${CLUSTER}" == "mgmt" ]]; then
-    if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-       get namespace observability &>/dev/null; then
-      kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-        apply -f "${NETWORK_POLICIES_TEMPLATE}" -n observability 2>/dev/null || true
+    if $(get_kubectl_cmd "${CLUSTER}") \
+       get namespace "${NAMESPACE_OBSERVABILITY}" &>/dev/null; then
+      $(get_kubectl_cmd "${CLUSTER}") \
+        apply -f "${NETWORK_POLICIES_TEMPLATE}" -n "${NAMESPACE_OBSERVABILITY}" 2>/dev/null || true
     fi
   fi
 
   # Apply backup namespace policies (mgmt only)
   if [[ "${CLUSTER}" == "mgmt" ]]; then
-    if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-       get namespace backup &>/dev/null; then
-      kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-        apply -f "${NETWORK_POLICIES_TEMPLATE}" -n backup 2>/dev/null || true
+    if $(get_kubectl_cmd "${CLUSTER}") \
+       get namespace "${NAMESPACE_BACKUP}" &>/dev/null; then
+      $(get_kubectl_cmd "${CLUSTER}") \
+        apply -f "${NETWORK_POLICIES_TEMPLATE}" -n "${NAMESPACE_BACKUP}" 2>/dev/null || true
     fi
   fi
 
   # Apply vault namespace policies (mgmt only)
   if [[ "${CLUSTER}" == "mgmt" ]]; then
-    if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-       get namespace vault &>/dev/null; then
-      kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-        apply -f "${NETWORK_POLICIES_TEMPLATE}" -n vault 2>/dev/null || true
+    if $(get_kubectl_cmd "${CLUSTER}") \
+       get namespace "${NAMESPACE_VAULT}" &>/dev/null; then
+      $(get_kubectl_cmd "${CLUSTER}") \
+        apply -f "${NETWORK_POLICIES_TEMPLATE}" -n "${NAMESPACE_VAULT}" 2>/dev/null || true
     fi
   fi
 
   # Apply security namespace policies
-  if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-     get namespace security &>/dev/null; then
-    kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-      apply -f "${NETWORK_POLICIES_TEMPLATE}" -n security 2>/dev/null || true
+  if $(get_kubectl_cmd "${CLUSTER}") \
+     get namespace "${NAMESPACE_SECURITY}" &>/dev/null; then
+    $(get_kubectl_cmd "${CLUSTER}") \
+      apply -f "${NETWORK_POLICIES_TEMPLATE}" -n "${NAMESPACE_SECURITY}" 2>/dev/null || true
   fi
 
   # Apply argocd namespace policies (mgmt + app1)
   if [[ "${CLUSTER}" == "mgmt" || "${CLUSTER}" == "app1" ]]; then
-    if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-       get namespace argocd &>/dev/null; then
-      kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-        apply -f "${NETWORK_POLICIES_TEMPLATE}" -n argocd 2>/dev/null || true
+    if $(get_kubectl_cmd "${CLUSTER}") \
+       get namespace "${NAMESPACE_ARGOCD}" &>/dev/null; then
+      $(get_kubectl_cmd "${CLUSTER}") \
+        apply -f "${NETWORK_POLICIES_TEMPLATE}" -n "${NAMESPACE_ARGOCD}" 2>/dev/null || true
     fi
   fi
 

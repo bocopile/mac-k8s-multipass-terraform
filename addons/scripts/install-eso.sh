@@ -7,28 +7,25 @@ set -euo pipefail
 ESO_VERSION="${1:-0.14.3}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 # Helm repo 추가
-helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
-helm repo update external-secrets
+add_helm_repo "external-secrets" "${HELM_REPO_EXTERNAL_SECRETS}"
 
 CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
 
 # mgmt 클러스터의 Vault 서비스 주소 확인
-MGMT_CONTEXT="kubernetes-admin@mgmt"
 VAULT_ADDR=""
 
 # Vault LoadBalancer IP 조회 시도
-VAULT_LB_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${MGMT_CONTEXT}" \
-  get svc vault -n vault -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+VAULT_LB_IP=$($(get_kubectl_cmd mgmt) \
+  get svc vault -n "${NAMESPACE_VAULT}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
 
 if [[ -n "${VAULT_LB_IP}" ]]; then
   VAULT_ADDR="http://${VAULT_LB_IP}:8200"
@@ -41,35 +38,33 @@ else
 fi
 
 for CLUSTER in ${CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-
   echo "=== Installing External Secrets Operator on ${CLUSTER} ==="
 
-  helm upgrade --install external-secrets external-secrets/external-secrets \
+  ensure_namespace "${NAMESPACE_SECURITY}" "${CLUSTER}"
+
+  $(get_helm_cmd "${CLUSTER}") upgrade --install external-secrets external-secrets/external-secrets \
     --version "${ESO_VERSION}" \
-    --namespace security --create-namespace \
-    --kubeconfig "${KUBECONFIG_MULTI}" \
-    --kube-context "${CONTEXT}" \
+    --namespace "${NAMESPACE_SECURITY}" \
     --set installCRDs=true \
     --set prometheus.enabled=true \
     --set serviceMonitor.enabled=true \
-    --wait --timeout 180s
+    --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   echo "Waiting for ESO webhook..."
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-    -n security wait deploy/external-secrets-webhook \
-    --for=condition=available --timeout=120s
+  $(get_kubectl_cmd "${CLUSTER}") \
+    -n "${NAMESPACE_SECURITY}" wait deploy/external-secrets-webhook \
+    --for=condition=available --timeout="${TIMEOUT_POD_READY}s"
 
   # ClusterSecretStore 생성 (Vault 연동)
   # mgmt 클러스터는 in-cluster, app 클러스터는 LoadBalancer IP 사용
   if [[ "${CLUSTER}" == "mgmt" ]]; then
-    STORE_VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
+    STORE_VAULT_ADDR="http://vault.${NAMESPACE_VAULT}.svc.cluster.local:8200"
   else
     STORE_VAULT_ADDR="${VAULT_ADDR}"
   fi
 
   echo "Creating ClusterSecretStore on ${CLUSTER} (vault: ${STORE_VAULT_ADDR})..."
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" apply -f - <<EOF
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: external-secrets.io/v1beta1
 kind: ClusterSecretStore
 metadata:

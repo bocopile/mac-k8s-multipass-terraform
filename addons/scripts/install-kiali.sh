@@ -10,14 +10,13 @@ set -euo pipefail
 KIALI_VERSION="${1:-1.91.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 echo "=== Installing Kiali ${KIALI_VERSION} on Istio clusters ==="
 
@@ -25,8 +24,7 @@ echo "=== Installing Kiali ${KIALI_VERSION} on Istio clusters ==="
 # Helm Repo 추가
 # =============================================================================
 echo "[1/3] Adding Kiali Helm repository..."
-helm repo add kiali https://kiali.org/helm-charts 2>/dev/null || true
-helm repo update kiali
+add_helm_repo "kiali" "${HELM_REPO_KIALI}"
 
 # =============================================================================
 # Kiali 설치 대상 클러스터 (Istio 설치된 클러스터만)
@@ -34,8 +32,6 @@ helm repo update kiali
 KIALI_CLUSTERS="mgmt app1"
 
 for CLUSTER in ${KIALI_CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-
   echo ""
   echo "=== Installing Kiali on ${CLUSTER} cluster ==="
 
@@ -45,9 +41,8 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
   echo "[2/3] Configuring Grafana integration..."
 
   # Grafana 서비스 IP 가져오기 (ClusterIP)
-  GRAFANA_SVC_IP=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" \
-    --context "kubernetes-admin@mgmt" \
-    -n monitoring get svc kube-prometheus-stack-grafana \
+  GRAFANA_SVC_IP=$($(get_kubectl_cmd mgmt) \
+    -n "${NAMESPACE_MONITORING}" get svc kube-prometheus-stack-grafana \
     -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
 
   if [[ -z "${GRAFANA_SVC_IP}" ]]; then
@@ -68,11 +63,9 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
   # ===========================================================================
   echo "[3/3] Installing Kiali Server..."
 
-  helm upgrade --install kiali-server kiali/kiali-server \
+  $(get_helm_cmd "${CLUSTER}") upgrade --install kiali-server kiali/kiali-server \
     --version "${KIALI_VERSION}" \
-    --namespace istio-system --create-namespace \
-    --kubeconfig "${KUBECONFIG_MULTI}" \
-    --kube-context "${CONTEXT}" \
+    --namespace istio-system \
     --set auth.strategy=anonymous \
     --set deployment.accessible_namespaces='["**"]' \
     --set deployment.cluster_wide_access=true \
@@ -104,15 +97,15 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
     --set server.metrics_port=9090 \
     --set server.port=20001 \
     --set server.web_port=20001 \
-    --wait --timeout 180s
+    --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   echo "Kiali Server installed on ${CLUSTER}"
 
   # ===========================================================================
   # Kiali Service 확인
   # ===========================================================================
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-    -n istio-system wait --for=condition=available --timeout=120s \
+  $(get_kubectl_cmd "${CLUSTER}") \
+    -n istio-system wait --for=condition=available --timeout="${TIMEOUT_POD_READY}s" \
     deployment/kiali-server || echo "WARNING: Kiali deployment not ready"
 
   # ===========================================================================
@@ -126,8 +119,8 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
     KIALI_SVC_URL="http://kiali-server.istio-system.svc:20001"
 
     # Grafana ConfigMap에 Kiali 링크 추가
-    kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
-      -n monitoring get configmap kube-prometheus-stack-grafana &>/dev/null || \
+    $(get_kubectl_cmd "${CLUSTER}") \
+      -n "${NAMESPACE_MONITORING}" get configmap kube-prometheus-stack-grafana &>/dev/null || \
       echo "WARNING: Grafana ConfigMap not found, skipping Kiali link configuration"
 
     # Kiali를 Grafana 데이터소스로 추가 (선택적)
@@ -146,9 +139,7 @@ echo ""
 echo "Creating Prometheus ServiceMonitor for Kiali metrics..."
 
 for CLUSTER in ${KIALI_CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" apply -f - <<EOF
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -177,15 +168,14 @@ echo "================================================================="
 echo "  Kiali Installation Summary"
 echo "================================================================="
 for CLUSTER in ${KIALI_CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
   echo ""
   echo "Cluster: ${CLUSTER}"
   echo "  Kiali Server:"
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+  $(get_kubectl_cmd "${CLUSTER}") \
     -n istio-system get svc kiali-server -o wide
   echo ""
   echo "  Access URL (port-forward):"
-  echo "    kubectl --context ${CONTEXT} -n istio-system port-forward svc/kiali-server 20001:20001"
+  echo "    kubectl --context kubernetes-admin@${CLUSTER} -n istio-system port-forward svc/kiali-server 20001:20001"
   echo "    http://localhost:20001/kiali"
 done
 echo "================================================================="

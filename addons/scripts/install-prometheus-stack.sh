@@ -79,10 +79,10 @@ echo ""
 echo "=== Configuring Grafana Thanos Query datasource ==="
 
 # Thanos가 이미 설치되어 있으면 datasource 추가
-THANOS_EXIST=$(kubectl ${KC_KUBECTL} -n thanos get svc thanos-query 2>/dev/null && echo "true" || echo "false")
+THANOS_EXIST=$($(get_kubectl_cmd mgmt) -n thanos get svc thanos-query 2>/dev/null && echo "true" || echo "false")
 
 if [[ "${THANOS_EXIST}" == "true" ]]; then
-  kubectl ${KC_KUBECTL} -n monitoring apply -f - <<EOF
+  $(get_kubectl_cmd mgmt) -n "${NAMESPACE_MONITORING}" apply -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -122,10 +122,10 @@ echo "  [OK] kube-state-metrics - monitoring namespace"
 echo "================================================================="
 echo ""
 echo "Access Grafana:"
-echo "  kubectl ${KC_KUBECTL} -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80"
+echo "  $(get_kubectl_cmd mgmt) -n ${NAMESPACE_MONITORING} port-forward svc/kube-prometheus-stack-grafana 3000:80"
 echo "  Username: admin / Password: admin"
 echo ""
 echo "Access Prometheus:"
-echo "  kubectl ${KC_KUBECTL} -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090"
+echo "  $(get_kubectl_cmd mgmt) -n ${NAMESPACE_MONITORING} port-forward svc/kube-prometheus-stack-prometheus 9090:9090"
 echo ""
 echo "Estimated RAM: ~1.0GB on mgmt-worker-0"

@@ -10,44 +10,40 @@ set -euo pipefail
 OTEL_VERSION="${1:-0.115.1}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
 
 echo "=== Installing OpenTelemetry Collector ${OTEL_VERSION} ==="
 
 # Helm Repo 추가
-helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts 2>/dev/null || true
-helm repo update open-telemetry
+add_helm_repo "open-telemetry" "${HELM_REPO_OPENTELEMETRY}"
 
 # 클러스터별 설치
 CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
 
 for CLUSTER in ${CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-
   echo ""
   echo "=== Installing OTel Collector on ${CLUSTER} ==="
 
   # Tempo 엔드포인트 설정 (mgmt 클러스터의 Tempo)
   if [[ "${CLUSTER}" == "mgmt" ]]; then
-    TEMPO_ENDPOINT="tempo.observability.svc.cluster.local:4317"
+    TEMPO_ENDPOINT="tempo.${NAMESPACE_OBSERVABILITY}.svc.cluster.local:4317"
   else
     # app 클러스터에서는 Cluster Mesh를 통해 mgmt의 Tempo 접근
-    TEMPO_ENDPOINT="tempo.observability.svc.cluster.local:4317"
+    TEMPO_ENDPOINT="tempo.${NAMESPACE_OBSERVABILITY}.svc.cluster.local:4317"
   fi
 
+  ensure_namespace "${NAMESPACE_OBSERVABILITY}" "${CLUSTER}"
+
   # OTel Collector 설치
-  helm upgrade --install opentelemetry-collector open-telemetry/opentelemetry-collector \
+  $(get_helm_cmd "${CLUSTER}") upgrade --install opentelemetry-collector open-telemetry/opentelemetry-collector \
     --version "${OTEL_VERSION}" \
-    --namespace observability --create-namespace \
-    --kubeconfig "${KUBECONFIG_MULTI}" \
-    --kube-context "${CONTEXT}" \
+    --namespace "${NAMESPACE_OBSERVABILITY}" \
     --set mode=daemonset \
     --set image.repository=otel/opentelemetry-collector-k8s \
     --set resources.requests.cpu=100m \
@@ -73,7 +69,7 @@ for CLUSTER in ${CLUSTERS}; do
     --set config.service.pipelines.metrics.receivers[1]=prometheus \
     --set config.service.pipelines.metrics.processors[0]=batch \
     --set config.service.pipelines.metrics.exporters[0]=prometheus \
-    --wait --timeout 180s
+    --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   echo "OTel Collector installed on ${CLUSTER}"
 done
@@ -87,16 +83,14 @@ echo "=== Configuring Istio to send traces to OTel Collector ==="
 ISTIO_CLUSTERS="mgmt app1"
 
 for CLUSTER in ${ISTIO_CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-
   echo "Configuring Istio on ${CLUSTER}..."
 
   # Istio ConfigMap 업데이트 (Tracing 설정)
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
+  $(get_kubectl_cmd "${CLUSTER}") \
     -n istio-system get configmap istio &>/dev/null || continue
 
   # Telemetry API로 Tracing 활성화
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" apply -f - <<EOF
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: telemetry.istio.io/v1alpha1
 kind: Telemetry
 metadata:
@@ -127,7 +121,7 @@ data:
     extensionProviders:
     - name: otel-collector
       opentelemetry:
-        service: opentelemetry-collector.observability.svc.cluster.local
+        service: opentelemetry-collector.${NAMESPACE_OBSERVABILITY}.svc.cluster.local
         port: 4317
 EOF
 

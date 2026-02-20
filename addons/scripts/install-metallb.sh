@@ -34,7 +34,7 @@ for CLUSTER in ${CLUSTERS}; do
     --for=condition=ready --timeout="${TIMEOUT_POD_READY}s" || true
 
   # IPAddressPool 및 L2Advertisement 적용
-  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" apply -f - <<EOF
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
