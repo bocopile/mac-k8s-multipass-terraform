@@ -198,16 +198,13 @@ main() {
 
     for addon in "${addons_to_verify[@]}"; do
         ((total++)) || true
-        if verify_addon "$addon"; then
-            ((success++)) || true
-        else
-            local ret=$?
-            if [[ $ret -eq 2 ]]; then
-                ((skipped++)) || true
-            else
-                ((failed++)) || true
-            fi
-        fi
+        verify_addon "$addon"
+        local ret=$?
+        case $ret in
+            0) ((success++)) || true ;;
+            2) ((skipped++)) || true ;;
+            *) ((failed++)) || true ;;
+        esac
     done
 
     # 결과 출력

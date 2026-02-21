@@ -13,9 +13,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Load libraries
 source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
 source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
 
 # Setup
 setup_common_vars
+
+# Generate Grafana admin password
+GRAFANA_ADMIN_PASSWORD=$(generate_password 24)
 
 # =============================================================================
 # Helm Repo 등록
@@ -49,7 +53,7 @@ $(get_helm_cmd mgmt) upgrade --install kube-prometheus-stack prometheus-communit
   --set prometheus.prometheusSpec.enableRemoteWriteReceiver=true \
   --set prometheus.service.type=ClusterIP \
   --set grafana.enabled=true \
-  --set grafana.adminPassword=admin \
+  --set grafana.adminPassword="${GRAFANA_ADMIN_PASSWORD}" \
   --set grafana.service.type=ClusterIP \
   --set grafana.resources.requests.memory="${RESOURCES_MEDIUM_REQUESTS_MEMORY}" \
   --set grafana.resources.requests.cpu="${RESOURCES_MEDIUM_REQUESTS_CPU}" \
@@ -71,6 +75,9 @@ $(get_helm_cmd mgmt) upgrade --install kube-prometheus-stack prometheus-communit
   --wait --timeout 300s
 
 echo "kube-prometheus-stack installed."
+
+# Save Grafana credentials
+save_credential "GRAFANA_ADMIN_PASSWORD" "${GRAFANA_ADMIN_PASSWORD}"
 
 # =============================================================================
 # Grafana에 Thanos Query 데이터소스 추가
@@ -115,7 +122,7 @@ echo "================================================================="
 echo "  Prometheus Stack Installation Summary (mgmt cluster)"
 echo "================================================================="
 echo "  [OK] Prometheus     - monitoring namespace (7d retention)"
-echo "  [OK] Grafana        - monitoring namespace (admin/admin)"
+echo "  [OK] Grafana        - monitoring namespace (password saved to credentials)"
 echo "  [OK] Alertmanager   - monitoring namespace"
 echo "  [OK] Node Exporter  - monitoring namespace (DaemonSet)"
 echo "  [OK] kube-state-metrics - monitoring namespace"
@@ -123,7 +130,8 @@ echo "================================================================="
 echo ""
 echo "Access Grafana:"
 echo "  $(get_kubectl_cmd mgmt) -n ${NAMESPACE_MONITORING} port-forward svc/kube-prometheus-stack-grafana 3000:80"
-echo "  Username: admin / Password: admin"
+echo "  Username: admin"
+echo "  Password: grep GRAFANA_ADMIN_PASSWORD ${CREDENTIALS_FILE}"
 echo ""
 echo "Access Prometheus:"
 echo "  $(get_kubectl_cmd mgmt) -n ${NAMESPACE_MONITORING} port-forward svc/kube-prometheus-stack-prometheus 9090:9090"

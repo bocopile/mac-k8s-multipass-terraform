@@ -2,6 +2,11 @@ variable "multipass_image" {
   description = "Multipass에서 사용할 Ubuntu 이미지 버전"
   type        = string
   default     = "24.04"
+
+  validation {
+    condition     = can(regex("^[a-zA-Z0-9._:-]+$", var.multipass_image))
+    error_message = "multipass_image must contain only alphanumeric characters, dots, underscores, colons, and hyphens"
+  }
 }
 
 variable "k8s_version" {

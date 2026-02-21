@@ -62,21 +62,21 @@ echo ""
 echo "=== Initializing Vault ==="
 
 # Vault pod가 Running 상태가 될 때까지 대기
-kubectl ${KC_KUBECTL} -n vault wait --for=condition=Ready pod/vault-0 --timeout=120s 2>/dev/null || true
+$(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" wait --for=condition=Ready pod/vault-0 --timeout=120s 2>/dev/null || true
 
 # 초기화 상태 확인
-INIT_STATUS=$(kubectl ${KC_KUBECTL} -n vault exec vault-0 -- vault status -format=json 2>/dev/null | jq -r '.initialized' || echo "false")
+INIT_STATUS=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" exec vault-0 -- vault status -format=json 2>/dev/null | jq -r '.initialized' || echo "false")
 
 if [[ "${INIT_STATUS}" == "false" ]]; then
   echo "Initializing Vault with 1 key share, 1 key threshold (dev/PoC mode)..."
-  INIT_OUTPUT=$(kubectl ${KC_KUBECTL} -n vault exec vault-0 -- vault operator init \
+  INIT_OUTPUT=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" exec vault-0 -- vault operator init \
     -key-shares=1 -key-threshold=1 -format=json)
 
   UNSEAL_KEY=$(echo "${INIT_OUTPUT}" | jq -r '.unseal_keys_b64[0]')
   ROOT_TOKEN=$(echo "${INIT_OUTPUT}" | jq -r '.root_token')
 
   # Unseal
-  kubectl ${KC_KUBECTL} -n vault exec vault-0 -- vault operator unseal "${UNSEAL_KEY}"
+  $(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" exec vault-0 -- vault operator unseal "${UNSEAL_KEY}"
 
   # 키 저장 (generated 디렉토리에 보관)
   echo "${INIT_OUTPUT}" > "${GENERATED_DIR}/vault-init.json"
@@ -92,10 +92,10 @@ if [[ "${INIT_STATUS}" == "false" ]]; then
 else
   echo "Vault already initialized."
   # 이미 초기화된 경우 unseal 시도
-  SEALED=$(kubectl ${KC_KUBECTL} -n vault exec vault-0 -- vault status -format=json 2>/dev/null | jq -r '.sealed' || echo "true")
+  SEALED=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" exec vault-0 -- vault status -format=json 2>/dev/null | jq -r '.sealed' || echo "true")
   if [[ "${SEALED}" == "true" && -f "${GENERATED_DIR}/vault-init.json" ]]; then
     UNSEAL_KEY=$(jq -r '.unseal_keys_b64[0]' "${GENERATED_DIR}/vault-init.json")
-    kubectl ${KC_KUBECTL} -n vault exec vault-0 -- vault operator unseal "${UNSEAL_KEY}"
+    $(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" exec vault-0 -- vault operator unseal "${UNSEAL_KEY}"
     echo "Vault unsealed."
   fi
 fi
@@ -108,9 +108,11 @@ echo "=== Enabling KV v2 secrets engine ==="
 
 if [[ -f "${GENERATED_DIR}/vault-root-token" ]]; then
   ROOT_TOKEN=$(cat "${GENERATED_DIR}/vault-root-token")
-  # Security: Pass token via stdin instead of command-line argument
-  kubectl ${KC_KUBECTL} -n vault exec vault-0 -- sh -c \
-    'export VAULT_TOKEN="'"${ROOT_TOKEN}"'" && vault secrets enable -path=secret kv-v2 2>/dev/null || true'
+  # Security: export token as env var inside the exec shell
+  $(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" exec -i vault-0 -- sh -c '
+    export VAULT_TOKEN="'"${ROOT_TOKEN}"'"
+    vault secrets enable -path=secret kv-v2 2>/dev/null || true
+  '
   echo "KV v2 secrets engine enabled at path: secret/"
 
   # Save to credentials file for reuse
@@ -124,7 +126,7 @@ echo ""
 echo "=== Waiting for Vault LoadBalancer IP ==="
 
 for i in $(seq 1 30); do
-  VAULT_LB_IP=$(kubectl ${KC_KUBECTL} -n vault \
+  VAULT_LB_IP=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" \
     get svc vault -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
   if [[ -n "${VAULT_LB_IP}" ]]; then
     echo "${VAULT_LB_IP}" > "${GENERATED_DIR}/vault-lb-ip"
@@ -136,8 +138,8 @@ for i in $(seq 1 30); do
 done
 
 if [[ -z "${VAULT_LB_IP:-}" ]]; then
-  echo "WARNING: Vault LoadBalancer IP not assigned within timeout."
-  echo "  Check: kubectl ${KC_KUBECTL} -n vault get svc vault"
+  log_warn "Vault LoadBalancer IP not assigned within timeout."
+  echo "  Check: $(get_kubectl_cmd mgmt) -n ${NAMESPACE_VAULT} get svc vault"
 fi
 
 # =============================================================================
@@ -154,6 +156,6 @@ echo "  [OK] UI            - ClusterIP (port-forward for access)"
 echo "================================================================="
 echo ""
 echo "Access Vault UI:"
-echo "  kubectl ${KC_KUBECTL} -n vault port-forward svc/vault-ui 8200:8200"
+echo "  $(get_kubectl_cmd mgmt) -n ${NAMESPACE_VAULT} port-forward svc/vault-ui 8200:8200"
 echo ""
 echo "Estimated RAM: ~400MB on mgmt-worker-0"

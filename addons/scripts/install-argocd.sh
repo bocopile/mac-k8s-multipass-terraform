@@ -49,7 +49,6 @@ $(get_helm_cmd mgmt) upgrade --install argocd argo/argo-cd \
   --set redis.resources.requests.cpu=50m \
   --set redis.resources.limits.memory=128Mi \
   --set redis.resources.limits.cpu=100m \
-  --set configs.params."server\.insecure"=true \
   --wait --timeout 300s
 
 echo "ArgoCD installed."
@@ -62,7 +61,7 @@ echo "=== ArgoCD Admin Password ==="
 ARGOCD_PASSWORD=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_ARGOCD}" get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "(not found)")
 echo "  Username: admin"
-echo "  Password: ${ARGOCD_PASSWORD}"
+echo "  Password: $(get_kubectl_cmd mgmt) -n ${NAMESPACE_ARGOCD} get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
 
 # =============================================================================
 # ArgoCD CLI 설치 확인
@@ -91,28 +90,30 @@ PF_PID=$!
 sleep 3
 
 if command -v argocd &>/dev/null && [[ -n "${ARGOCD_PASSWORD}" && "${ARGOCD_PASSWORD}" != "(not found)" ]]; then
-  # ArgoCD 로그인
-  argocd login localhost:8443 \
+  # ArgoCD 로그인 (--insecure: localhost port-forward는 TLS 인증서가 없으므로 검증 스킵 필요)
+  if ! argocd login localhost:8443 \
     --username admin \
     --password "${ARGOCD_PASSWORD}" \
-    --insecure 2>/dev/null || true
+    --insecure 2>/dev/null; then
+    log_warn "ArgoCD login failed. Cluster registration will be skipped."
+  else
+    # app1 클러스터 등록
+    log_info "Registering app1 cluster..."
+    argocd cluster add "kubernetes-admin@app1" \
+      --kubeconfig "${KUBECONFIG_MULTI}" \
+      --name app1 \
+      --yes 2>/dev/null || log_warn "app1 registration skipped or already registered"
 
-  # app1 클러스터 등록
-  echo "Registering app1 cluster..."
-  argocd cluster add "kubernetes-admin@app1" \
-    --kubeconfig "${KUBECONFIG_MULTI}" \
-    --name app1 \
-    --yes 2>/dev/null || echo "  (app1 registration skipped or already registered)"
+    # app2 클러스터 등록
+    log_info "Registering app2 cluster..."
+    argocd cluster add "kubernetes-admin@app2" \
+      --kubeconfig "${KUBECONFIG_MULTI}" \
+      --name app2 \
+      --yes 2>/dev/null || log_warn "app2 registration skipped or already registered"
 
-  # app2 클러스터 등록
-  echo "Registering app2 cluster..."
-  argocd cluster add "kubernetes-admin@app2" \
-    --kubeconfig "${KUBECONFIG_MULTI}" \
-    --name app2 \
-    --yes 2>/dev/null || echo "  (app2 registration skipped or already registered)"
-
-  echo "Listing registered clusters..."
-  argocd cluster list 2>/dev/null || true
+    log_info "Listing registered clusters..."
+    argocd cluster list || true
+  fi
 else
   echo "NOTE: ArgoCD CLI not available or password not found."
   echo "  Manual cluster registration required:"
@@ -139,6 +140,7 @@ echo ""
 echo "Access ArgoCD UI:"
 echo "  $(get_kubectl_cmd mgmt) -n ${NAMESPACE_ARGOCD} port-forward svc/argocd-server 8080:443"
 echo "  https://localhost:8080"
-echo "  Username: admin / Password: ${ARGOCD_PASSWORD}"
+echo "  Username: admin"
+echo "  Password: $(get_kubectl_cmd mgmt) -n ${NAMESPACE_ARGOCD} get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
 echo ""
 echo "Estimated RAM: ~500MB on mgmt-worker-0"

@@ -45,7 +45,7 @@ for CLUSTER in "${CLUSTERS[@]}"; do
 
   # Nodes ready 체크
   check "Nodes ready" bash -c \
-    "$(get_kubectl_cmd '${CLUSTER}') get nodes -o jsonpath='{.items[*].status.conditions[?(@.type==\"Ready\")].status}' | grep -q True"
+    "$(get_kubectl_cmd "${CLUSTER}") get nodes -o jsonpath='{.items[*].status.conditions[?(@.type==\"Ready\")].status}' | grep -q True"
 
   echo "  Nodes:"
   $(get_kubectl_cmd "${CLUSTER}") get nodes -o wide 2>/dev/null || echo "    (failed)"
@@ -59,7 +59,7 @@ for CLUSTER in "${CLUSTERS[@]}"; do
 
   # MetalLB 상태
   check "MetalLB running" bash -c \
-    "$(get_kubectl_cmd '${CLUSTER}') -n metallb-system get deploy controller -o jsonpath='{.status.availableReplicas}' | grep -q 1"
+    "$(get_kubectl_cmd "${CLUSTER}") -n metallb-system get deploy controller -o jsonpath='{.status.availableReplicas}' | grep -q 1"
 
   check "IPAddressPool exists" $(get_kubectl_cmd "${CLUSTER}") \
     -n metallb-system get ipaddresspool "${CLUSTER}-pool"

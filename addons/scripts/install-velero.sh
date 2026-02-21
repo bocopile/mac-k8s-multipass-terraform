@@ -7,17 +7,14 @@ set -euo pipefail
 VELERO_VERSION="${1:-8.2.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GENERATED_DIR="${SCRIPT_DIR}/../generated"
-KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
-CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
-# Load credential management library
+# Load libraries
+source "${SCRIPT_DIR}/../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../scripts/lib/constants.sh"
 source "${SCRIPT_DIR}/../../scripts/lib/credentials.sh"
 
-if [[ ! -f "${CLUSTERS_JSON}" ]]; then
-  echo "ERROR: clusters.json not found at ${CLUSTERS_JSON}"
-  exit 1
-fi
+# Setup
+setup_common_vars
 
 # MinIO IP 확인
 MINIO_IP_FILE="${GENERATED_DIR}/minio-ip"
@@ -49,30 +46,24 @@ load_credentials || {
 }
 
 # Helm repo 추가
-helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts 2>/dev/null || true
-helm repo update vmware-tanzu
+add_helm_repo "vmware-tanzu" "${HELM_REPO_VMWARE_TANZU}"
 
 CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
 
 for CLUSTER in ${CLUSTERS}; do
-  CONTEXT="kubernetes-admin@${CLUSTER}"
-  KC="--kubeconfig ${KUBECONFIG_MULTI} --kube-context ${CONTEXT}"
-  KC_KUBECTL="--kubeconfig ${KUBECONFIG_MULTI} --context ${CONTEXT}"
-
-  echo "=== Installing Velero on ${CLUSTER} ==="
+  log_info "Installing Velero on ${CLUSTER}"
 
   # MinIO 자격증명 Secret 생성
-  kubectl ${KC_KUBECTL} create namespace backup 2>/dev/null || true
-  kubectl ${KC_KUBECTL} -n backup create secret generic velero-s3-credentials \
+  ensure_namespace "${NAMESPACE_BACKUP}" "${CLUSTER}"
+  $(get_kubectl_cmd "${CLUSTER}") -n "${NAMESPACE_BACKUP}" create secret generic velero-s3-credentials \
     --from-literal=aws="[default]
 aws_access_key_id=${MINIO_ROOT_USER}
 aws_secret_access_key=${MINIO_ROOT_PASSWORD}
-" --dry-run=client -o yaml | kubectl ${KC_KUBECTL} apply -f -
+" --dry-run=client -o yaml | $(get_kubectl_cmd "${CLUSTER}") apply -f -
 
-  helm upgrade --install velero vmware-tanzu/velero \
+  $(get_helm_cmd "${CLUSTER}") upgrade --install velero vmware-tanzu/velero \
     --version "${VELERO_VERSION}" \
-    --namespace backup \
-    ${KC} \
+    --namespace "${NAMESPACE_BACKUP}" \
     --set configuration.backupStorageLocation[0].name=default \
     --set configuration.backupStorageLocation[0].provider=aws \
     --set configuration.backupStorageLocation[0].bucket=velero-backups \
@@ -99,7 +90,7 @@ aws_secret_access_key=${MINIO_ROOT_PASSWORD}
     --set metrics.serviceMonitor.enabled=true \
     --wait --timeout 180s
 
-  echo "=== Velero installed on ${CLUSTER} (backup prefix: ${CLUSTER}/) ==="
+  log_info "Velero installed on ${CLUSTER} (backup prefix: ${CLUSTER}/)"
 done
 
 echo ""

@@ -33,12 +33,14 @@ config:
   endpoint: minio.${NAMESPACE_BACKUP}.svc.cluster.local:9000
   access_key: ${MINIO_ROOT_USER}
   secret_key: ${MINIO_ROOT_PASSWORD}
+  # WARNING: insecure=true required while MinIO runs without TLS.
+  # Set to false after enabling TLS on MinIO.
   insecure: true
   signature_version2: false
   http_config:
     idle_conn_timeout: 90s
     response_header_timeout: 2m
-    insecure_skip_verify: true
+    insecure_skip_verify: false
 EOF
 )" --dry-run=client -o yaml | $(get_kubectl_cmd mgmt) apply -f -
 
@@ -75,14 +77,14 @@ $(get_helm_cmd mgmt) upgrade --install thanos bitnami/thanos \
   --set objstoreConfig=thanos-objstore-config \
   --wait --timeout 300s
 
-echo "Waiting for Thanos Receive..."
-kubectl ${KC_KUBECTL} -n observability wait deploy/thanos-receive \
+log_info "Waiting for Thanos Receive..."
+$(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" wait deploy/thanos-receive \
   --for=condition=available --timeout=180s || true
 
 # Thanos Receive의 LoadBalancer IP 확인
 THANOS_RECEIVE_IP=""
 for i in $(seq 1 30); do
-  THANOS_RECEIVE_IP=$(kubectl ${KC_KUBECTL} -n observability \
+  THANOS_RECEIVE_IP=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" \
     get svc thanos-receive -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
   if [[ -n "${THANOS_RECEIVE_IP}" ]]; then
     break
