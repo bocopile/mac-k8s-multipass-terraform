@@ -254,9 +254,9 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | 10. Unsafe Temp Files | chmod 600 자동 설정 | credentials 파일 보호 |
 
 | **트레이드오프** | 일부 편의성 감소 (자동 생성 자격증명 조회 필요) |
-| **완화책** | - SECURITY.md 문서 작성<br/>- credentials.sh 라이브러리로 자동화<br/>- 자격증명 rotation 절차 문서화 |
+| **완화책** | - 부록B 보안 운영 체크리스트 참조<br/>- credentials.sh 라이브러리로 자동화<br/>- 자격증명 rotation 절차 문서화 |
 | **결과** | - **보안 점수**: 4/10 → 9/10<br/>- **CVSS 9.8 → 0**: 자격증명 노출 위험 제거<br/>- **Zero Trust**: NetworkPolicy 전체 적용<br/>- **프로덕션 준비**: CRITICAL 이슈 0개 |
-| **영향받는 컴포넌트** | scripts/lib/credentials.sh, addons/scripts/install-{minio,velero,thanos,vault}.sh, shell/mysql-install.sh, templates/network-policies.yaml, SECURITY.md |
+| **영향받는 컴포넌트** | scripts/lib/credentials.sh, addons/scripts/install-{minio,velero,thanos,vault}.sh, templates/network-policies.yaml |
 
 ### ADR-013: 코드 리팩토링 및 DRY 원칙 적용 (완료)
 
@@ -415,7 +415,7 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | 구성요소 | RAM | 용도 |
 |---------|-----|------|
 | macOS 시스템 + IDE 등 | 14GB | 호스트 운영 |
-| mgmt 클러스터 | 12GB | 플랫폼 서비스 |
+| mgmt 클러스터 | 14GB | 플랫폼 서비스 |
 | app1 클러스터 | 7GB | 워크로드 |
 | app2 클러스터 | 7GB | 워크로드 |
 | **합계** | **40GB** | |
@@ -430,10 +430,10 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 ```mermaid
 flowchart TB
     subgraph Host["macOS 호스트 (Mac Studio M1 Max, 64GB)"]
-        subgraph Multipass["Multipass VM (26GB)"]
-            subgraph mgmt["mgmt 클러스터 (12GB)"]
+        subgraph Multipass["Multipass VM (28GB)"]
+            subgraph mgmt["mgmt 클러스터 (14GB)"]
                 mgmt-cp["CP (4GB)"]
-                mgmt-worker["Worker (8GB)"]
+                mgmt-worker["Worker (10GB)"]
                 mgmt-services["Vault, Prometheus, Grafana,<br/>Thanos, Loki, ArgoCD,<br/>MinIO, Velero"]
             end
 
@@ -467,12 +467,12 @@ flowchart TB
 
 | 클러스터 | Control Plane | Workers | 총 RAM | 총 CPU |
 |---------|---------------|---------|--------|--------|
-| **mgmt** | 1 (4GB/2C) | 1 (8GB/2C) | 12GB | 4 vCPU |
+| **mgmt** | 1 (4GB/2C) | 1 (10GB/2C) | 14GB | 4 vCPU |
 | **app1** | 1 (3GB/2C) | 1 (4GB/2C) | 7GB | 4 vCPU |
 | **app2** | 1 (3GB/2C) | 1 (4GB/2C) | 7GB | 4 vCPU |
-| **합계** | | | **26GB** | **12 vCPU** |
+| **합계** | | | **28GB** | **12 vCPU** |
 
-> **참고**: AI 도구 추가 시 mgmt-worker-0를 8GB → 10GB로 증설 권장 (LocalAI ~2GB, HolmesGPT ~512MB, K8sGPT ~128MB, Botkube ~256MB)
+> **참고**: mgmt-worker-0는 10GB로 설정됨 (LocalAI ~2GB, HolmesGPT ~512MB, K8sGPT ~128MB, Botkube ~256MB 포함)
 
 ### 4.4 노드 IP 할당
 
@@ -529,18 +529,18 @@ flowchart TB
 
 | 기능 | 설명 | 구현 |
 |-----|------|------|
-| **Cluster Mesh** | 멀티클러스터 서비스 디스커버리 | `scripts/setup-clustermesh.sh` |
+| **Cluster Mesh** | 멀티클러스터 서비스 디스커버리 | `addons/scripts/setup-clustermesh.sh` |
 | **Tunneling (VXLAN)** | Multipass 환경에서 안정적 동작 | `routingMode=tunnel` |
 | **kube-proxy 대체** | eBPF 기반 서비스 라우팅 | `kubeProxyReplacement=true` |
 | **Hubble** | 네트워크 관찰성 (UI + CLI + Relay) | `hubble.ui.enabled=true` |
 | **Network Policy** | L3/L4/L7 정책 지원 | Cilium CRD |
-| **Gateway API** | Ingress 대체, CRD v1.2.1 | `scripts/install-gateway-api.sh` |
+| **Gateway API** | Ingress 대체, CRD v1.2.1 | `addons/scripts/install-gateway-api.sh` |
 
 ### 5.4 외부 로드밸런서: MetalLB
 
 - **모드**: L2 (ARP 기반)
 - **이유**: Multipass 브리지 네트워크에서 BGP 불가
-- **설치**: `scripts/install-metallb.sh`
+- **설치**: `addons/scripts/install-metallb.sh`
 
 ### 5.5 Service Mesh: Istio (예정)
 
@@ -717,7 +717,7 @@ spec:
 | **추정 총합** | - | **~1GB** | |
 
 **영향도**:
-- mgmt 클러스터: 12GB → 13GB (허용 범위)
+- mgmt 클러스터: 14GB (Worker 10GB 할당 완료)
 - app1 클러스터: 7GB → 8GB (sidecar 포함)
 
 ---
@@ -754,7 +754,7 @@ flowchart TB
 | **local-path** (기본) | rancher.io/local-path | Delete | 일반 워크로드 |
 | **local-path-retain** | rancher.io/local-path | Retain | Vault, MinIO, Prometheus, Grafana |
 
-> `local-path-retain`은 `scripts/install-platform-addons.sh`에서 자동 생성됩니다.
+> `local-path-retain`은 `addons/scripts/install-platform-addons.sh`에서 자동 생성됩니다.
 
 ### 6.3 워크로드별 스토리지 매핑
 
@@ -764,7 +764,7 @@ flowchart TB
 | Loki (mgmt) | local-path-retain | 10Gi | 7일 |
 | Grafana (mgmt) | local-path-retain | 5Gi | 영구 |
 | Vault (mgmt) | local-path-retain | 10Gi | 영구 |
-| MinIO (mgmt) | local-path | 50Gi | 영구 |
+| MinIO (mgmt) | local-path | 15Gi | 영구 |
 
 ---
 
@@ -819,10 +819,10 @@ flowchart TB
 
 | 정책 | 모드 | 설명 | 구현 |
 |-----|------|------|------|
-| 이미지 레지스트리 제한 | enforce | localhost:8443, docker.io/library, registry.k8s.io, quay.io 허용 | `scripts/install-kyverno.sh` |
-| 리소스 제한 필수 | enforce | requests/limits 필수 | `scripts/install-kyverno.sh` |
-| 권한 있는 컨테이너 금지 | enforce | privileged: false | `scripts/install-kyverno.sh` |
-| 라벨 필수 | audit | app, version 라벨 | `scripts/install-kyverno.sh` |
+| 이미지 레지스트리 제한 | enforce | localhost:8443, docker.io/library, registry.k8s.io, quay.io 허용 | `addons/scripts/install-kyverno.sh` |
+| 리소스 제한 필수 | enforce | requests/limits 필수 | `addons/scripts/install-kyverno.sh` |
+| 권한 있는 컨테이너 금지 | enforce | privileged: false | `addons/scripts/install-kyverno.sh` |
+| 라벨 필수 | audit | app, version 라벨 | `addons/scripts/install-kyverno.sh` |
 
 ### 7.4 NetworkPolicy (Zero Trust 모델)
 
@@ -902,7 +902,7 @@ save_credential "MINIO_ROOT_USER" "${NEW_USER}"
 save_credential "MINIO_ROOT_PASSWORD" "${NEW_PASSWORD}"
 ```
 
-> **참고**: SECURITY.md에 상세 자격증명 관리 및 보안 사고 대응 절차 문서화
+> **참고**: 부록B 보안 운영 체크리스트에 상세 자격증명 관리 및 보안 사고 대응 절차 정리
 
 ### 7.6 시크릿 관리 흐름
 
@@ -927,7 +927,7 @@ flowchart LR
 | **배치 범위** | 전체 클러스터 (DaemonSet) |
 | **기능** | 프로세스 실행/파일 접근/네트워크 이벤트를 커널 레벨에서 감지 |
 | **리소스** | ~100MB/노드 |
-| **설치** | `scripts/install-tetragon.sh` |
+| **설치** | `addons/scripts/install-tetragon.sh` |
 
 ### 7.8 Trivy Operator: 취약점 스캔
 
@@ -936,7 +936,7 @@ flowchart LR
 | **배치 범위** | mgmt 클러스터 |
 | **기능** | 컨테이너 이미지 CVE 스캔, K8s 리소스 감사 |
 | **리소스** | ~200MB |
-| **설치** | `scripts/install-platform-addons.sh` |
+| **설치** | `addons/scripts/install-platform-addons.sh` |
 
 ### 7.9 보안 점수
 
@@ -953,7 +953,7 @@ flowchart LR
 | **파일 권한** | ⚠️ 기본값 | ✅ chmod 600 | ✅ 중요 파일 보호 |
 | **종합 점수** | **4/10** | **9/10** | ✅ 프로덕션 수준 |
 
-> **참고**: 상세 보안 가이드는 [SECURITY.md](../../SECURITY.md) 참조
+> **참고**: 상세 보안 가이드는 부록B 보안 운영 체크리스트 참조
 
 ---
 
@@ -963,16 +963,16 @@ flowchart LR
 
 | 영역 | 도구 | 배치 | 구현 |
 |-----|------|------|------|
-| **Metrics (mgmt)** | Prometheus Full + Thanos | mgmt | `scripts/install-prometheus-stack.sh`, `scripts/install-thanos.sh` |
-| **Metrics (app)** | Prometheus Agent Mode | app1/app2 | `scripts/install-prometheus-agent.sh` |
-| **Logs (mgmt)** | Loki (SingleBinary) | mgmt | `scripts/install-loki.sh` |
-| **Logs (app)** | Promtail | 전 클러스터 | `scripts/install-loki.sh` |
-| **Dashboard** | Grafana | mgmt | `scripts/install-prometheus-stack.sh` |
-| **Alerting** | Alertmanager | mgmt | `scripts/install-prometheus-stack.sh` |
-| **Network** | Hubble (UI + Relay) | 전 클러스터 | `scripts/install-cilium.sh` |
-| **AIOps** | K8sGPT Operator | mgmt | `scripts/install-platform-addons.sh` |
-| **비용** | OpenCost | mgmt | `scripts/install-platform-addons.sh` |
-| **리소스** | VPA + Goldilocks | mgmt | `scripts/install-platform-addons.sh` |
+| **Metrics (mgmt)** | Prometheus Full + Thanos | mgmt | `addons/scripts/install-prometheus-stack.sh`, `addons/scripts/install-thanos.sh` |
+| **Metrics (app)** | Prometheus Agent Mode | app1/app2 | `addons/scripts/install-prometheus-agent.sh` |
+| **Logs (mgmt)** | Loki (SingleBinary) | mgmt | `addons/scripts/install-loki.sh` |
+| **Logs (app)** | Promtail | 전 클러스터 | `addons/scripts/install-loki.sh` |
+| **Dashboard** | Grafana | mgmt | `addons/scripts/install-prometheus-stack.sh` |
+| **Alerting** | Alertmanager | mgmt | `addons/scripts/install-prometheus-stack.sh` |
+| **Network** | Hubble (UI + Relay) | 전 클러스터 | `addons/scripts/install-cilium.sh` |
+| **AIOps** | K8sGPT Operator | mgmt | `addons/scripts/install-platform-addons.sh` |
+| **비용** | OpenCost | mgmt | `addons/scripts/install-platform-addons.sh` |
+| **리소스** | VPA + Goldilocks | mgmt | `addons/scripts/install-platform-addons.sh` |
 
 ### 8.2 데이터 흐름
 
@@ -1223,7 +1223,7 @@ spec:
 | **총합** | ~3-5GB | mgmt-worker-0 |
 
 **권장 사항**:
-- mgmt-worker-0 메모리를 8GB → 10GB로 증설 권장
+- mgmt-worker-0 메모리 10GB 할당 완료
 - LocalAI 대신 외부 LLM API 사용 시 메모리 절약 (~2GB)
 
 ---
@@ -1299,7 +1299,7 @@ flowchart TB
 ```
 
 - 각 클러스터별 고유 prefix (`mgmt/`, `app1/`, `app2/`)
-- **구현**: `scripts/install-minio.sh`, `scripts/install-velero.sh`
+- **구현**: `addons/scripts/install-minio.sh`, `addons/scripts/install-velero.sh`
 
 ---
 
@@ -1383,7 +1383,7 @@ flowchart TB
 | **소계 (AI 도구 제외)** | | **~5.9 GB** |
 | **여유 (현재 10GB 기준)** | | **✅ 충분 (+1.0 GB)** |
 
-> **최적화 적용**: mgmt-worker-0를 8GB → 10GB로 증설 완료 (2026-02-20, ADR-009)
+> **현재 설정**: mgmt-worker-0 = 10GB (locals.tf, ADR-009)
 
 #### app1-cp / app2-cp (각 3GB)
 
@@ -1522,34 +1522,39 @@ bash addons/install.sh vault argocd prometheus-stack
 
 | # | 스크립트 | 대상 | 의존성 |
 |---|---------|------|--------|
-| 1 | `cluster-init.sh` | 각 CP | VM 생성 후 |
-| 2 | `cluster-join.sh` | 각 Worker | init 후 |
-| 3 | `merge-kubeconfigs.sh` | 호스트 | 전체 join 후 |
-| 4 | `install-cilium.sh` | 전 클러스터 | kubeconfig 병합 후 |
-| 5 | `install-tetragon.sh` | 전 클러스터 | Cilium 후 |
-| 6 | `install-gateway-api.sh` | 전 클러스터 | Cilium 후 |
-| 7 | `install-metallb.sh` | 전 클러스터 | Cilium 후 |
-| 8 | `setup-clustermesh.sh` | 전 클러스터 | MetalLB 후 |
-| 9 | `install-cert-manager.sh` | 전 클러스터 | Cluster Mesh 후 |
-| 10 | `install-kyverno.sh` | app만 | Cluster Mesh 후 |
-| 11 | `install-falco.sh` | app만 | Cluster Mesh 후 |
-| 12 | `install-platform-addons.sh` | mgmt | Cluster Mesh + Tetragon 후 |
-| 13 | `install-k8sgpt.sh` | mgmt | Platform Addons 후 (LocalAI + K8sGPT CR) |
-| 14 | `install-vault.sh` | mgmt | Platform Addons 후 |
-| 15 | `install-thanos.sh` | mgmt | Platform Addons 후 |
-| 16 | `install-prometheus-stack.sh` | mgmt | Platform Addons 후 |
-| 17 | `install-argocd.sh` | mgmt | Cluster Mesh 후 |
-| 18 | `install-eso.sh` | 전 클러스터 | cert-manager + Vault 후 |
-| 19 | `install-holmesgpt.sh` | mgmt | Prometheus Stack + Loki + Tempo + K8sGPT 후 (LocalAI 공유) |
-| 20 | `install-botkube.sh` | mgmt (선택적) | 수동 실행 (Slack 토큰 필요) |
-| 21 | `install-minio.sh` | mgmt | Platform Addons 후 |
-| 22 | `install-loki.sh` | mgmt + app | Prometheus Stack 후 |
-| 23 | `install-prometheus-agent.sh` | app만 | Thanos 후 |
-| 24 | `install-velero.sh` | 전 클러스터 | MinIO 후 |
-| 25 | `verify-clusters.sh` | 검증 | 전체 완료 후 |
-| 26 | `delete-all.sh` | 정리 | 수동 실행 |
+| - | `scripts/cluster-init.sh` | 각 CP | VM 생성 후 (Terraform) |
+| - | `scripts/cluster-join.sh` | 각 Worker | init 후 (Terraform) |
+| - | `scripts/merge-kubeconfigs.sh` | 호스트 | 전체 join 후 (Terraform) |
+| 1 | `install-cilium.sh` | 전 클러스터 | kubeconfig 병합 후 |
+| 2 | `install-tetragon.sh` | 전 클러스터 | Cilium 후 |
+| 3 | `install-metallb.sh` | 전 클러스터 | Cilium 후 |
+| 4 | `install-gateway-api.sh` | 전 클러스터 | Cilium 후 |
+| 5 | `setup-clustermesh.sh` | 전 클러스터 | MetalLB 후 |
+| 6 | `install-cert-manager.sh` | 전 클러스터 | Cluster Mesh 후 |
+| 7 | `install-vault.sh` | mgmt | cert-manager 후 |
+| 8 | `setup-vault-pki.sh` | mgmt | Vault 후 |
+| 9 | `install-eso.sh` | 전 클러스터 | Vault 후 |
+| 10 | `install-argocd.sh` | mgmt | Cluster Mesh 후 |
+| 11 | `install-platform-addons.sh` | mgmt | Cluster Mesh 후 |
+| 12 | `install-k8sgpt.sh` | mgmt | Platform Addons 후 |
+| 13 | `install-thanos.sh` | mgmt | MinIO 후 |
+| 14 | `install-prometheus-stack.sh` | mgmt | Thanos 후 |
+| 15 | `install-prometheus-agent.sh` | app만 | Thanos 후 |
+| 16 | `install-loki.sh` | mgmt + app | Prometheus Stack 후 |
+| 17 | `install-tempo.sh` | mgmt | Prometheus Stack 후 |
+| 18 | `install-otel-collector.sh` | 전 클러스터 | Tempo 후 |
+| 19 | `install-istio.sh` | mgmt + app | OTel 후 |
+| 20 | `install-kiali.sh` | mgmt + app | Istio 후 |
+| 21 | `install-kyverno.sh` | app만 | Istio 후 |
+| 22 | `install-falco.sh` | app만 | Kyverno 후 |
+| 23 | `install-holmesgpt.sh` | mgmt | K8sGPT + Prometheus + Loki 후 |
+| 24 | `install-botkube.sh` | mgmt (선택적) | 수동 실행 (Slack 토큰 필요) |
+| 25 | `install-minio.sh` | mgmt | Platform Addons 후 |
+| 26 | `install-velero.sh` | 전 클러스터 | MinIO 후 |
+| - | `scripts/verify-clusters.sh` | 검증 | 전체 완료 후 |
+| - | `scripts/delete-all.sh` | 정리 | 수동 실행 |
 
-**총 스크립트 수**: 26개 (자동 24개 + 수동 2개)
+**총 Addon 수**: 26개 (addons/install.sh INSTALL_ORDER 기준, botkube 수동)
 
 ---
 
@@ -1559,13 +1564,13 @@ bash addons/install.sh vault argocd prometheus-stack
 
 | 서비스 | Namespace | Port | 접속 URL | 인증 |
 |--------|-----------|------|----------|------|
-| Grafana | observability | 3000 | http://localhost:3000 | admin / admin |
-| Prometheus | observability | 9090 | http://localhost:9090 | - |
-| AlertManager | observability | 9093 | http://localhost:9093 | - |
+| Grafana | monitoring | 3000 | http://localhost:3000 | admin / [랜덤생성] |
+| Prometheus | monitoring | 9090 | http://localhost:9090 | - |
+| AlertManager | monitoring | 9093 | http://localhost:9093 | - |
 | ArgoCD | argocd | 8080 | https://localhost:8080 | admin / [secret] |
 | Kiali | istio-system | 20001 | http://localhost:20001/kiali | anonymous |
 | Vault UI | vault | 8200 | http://localhost:8200 | [root-token] |
-| Thanos Query | observability | 9091 | http://localhost:9091 | - |
+| Thanos Query | observability | 9090 | http://localhost:9090 | - |
 | Chaos Mesh | chaos-mesh | 2333 | http://localhost:2333 | - |
 
 ### LoadBalancer (Cross-Cluster 통신)
@@ -1582,9 +1587,10 @@ bash addons/install.sh vault argocd prometheus-stack
 
 | 서비스 | 조회 방법 |
 |--------|----------|
+| Grafana | `grep GRAFANA_ADMIN_PASSWORD generated/.credentials.env` |
 | ArgoCD | `kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' \| base64 -d` |
 | Vault | `cat generated/vault-root-token` |
-| MinIO | `cat generated/.credentials.env` |
+| MinIO | `grep MINIO_ROOT generated/.credentials.env` |
 
 ## 부록 B: 보안 운영 체크리스트
 

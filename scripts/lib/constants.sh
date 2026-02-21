@@ -44,6 +44,8 @@ readonly HELM_REPO_OPENTELEMETRY="https://open-telemetry.github.io/opentelemetry
 readonly HELM_REPO_K8SGPT="https://charts.k8sgpt.ai/"
 readonly HELM_REPO_ROBUSTA="https://robusta-charts.storage.googleapis.com"
 readonly HELM_REPO_BOTKUBE="https://charts.botkube.io"
+readonly HELM_REPO_EXTERNAL_SECRETS="https://charts.external-secrets.io"
+readonly HELM_REPO_PROMETHEUS_COMMUNITY="${HELM_REPO_PROMETHEUS}"
 
 # =============================================================================
 # Domain Constants
