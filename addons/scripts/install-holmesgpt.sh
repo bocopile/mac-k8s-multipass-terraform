@@ -65,7 +65,7 @@ $(get_kubectl_cmd mgmt) -n monitoring patch alertmanagerconfig \
         "name": "robusta",
         "webhookConfigs": [
           {
-            "url": "http://robusta-runner.robusta.svc.cluster.local:5000/api/alerts",
+            "url": "http://robusta-runner.aiops.svc.cluster.local:5000/api/alerts",
             "sendResolved": true
           }
         ]
@@ -108,7 +108,7 @@ globalConfig:
     enabled: true
     llm:
       provider: localai
-      endpoint: http://localai.aiops.svc.cluster.local:8080/v1
+      endpoint: http://localai.localai.svc.cluster.local:8080/v1
       model: ggml-gpt4all-j
 
   # 데이터 소스 (관찰성 스택 통합)
@@ -152,7 +152,7 @@ echo ""
 echo "================================================================="
 echo "  HolmesGPT (Robusta) Installation Summary"
 echo "================================================================="
-echo "  [OK] Robusta Runner    - robusta namespace (~512MB)"
+echo "  [OK] Robusta Runner    - aiops namespace (~512MB)"
 echo "  [OK] Alertmanager      - Webhook configured"
 echo "  [OK] HolmesGPT AI      - LocalAI backend"
 echo "================================================================="

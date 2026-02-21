@@ -108,12 +108,12 @@ spec:
 EOF
 
 echo "Waiting for LocalAI to be ready..."
-$(get_kubectl_cmd mgmt) -n aiops wait --for=condition=available --timeout=180s deployment/localai || \
+$(get_kubectl_cmd mgmt) -n localai wait --for=condition=available --timeout=180s deployment/localai || \
   echo "WARNING: LocalAI deployment not ready yet, continuing..."
 
 # LocalAI에 모델 다운로드 (경량 모델)
 echo "Downloading AI model for LocalAI..."
-$(get_kubectl_cmd mgmt) -n aiops exec -i deployment/localai -- sh -c "
+$(get_kubectl_cmd mgmt) -n localai exec -i deployment/localai -- sh -c "
   wget -O /models/ggml-gpt4all-j.bin https://gpt4all.io/models/ggml-gpt4all-j.bin || echo 'Model download failed, will retry later'
 " || echo "WARNING: Model download failed, K8sGPT will use fallback"
 
@@ -132,7 +132,7 @@ spec:
   ai:
     enabled: true
     backend: localai
-    baseUrl: http://localai.aiops.svc.cluster.local:8080/v1
+    baseUrl: http://localai.localai.svc.cluster.local:8080/v1
     model: ggml-gpt4all-j
     # OpenAI 호환 엔드포인트 사용 (LocalAI가 제공)
   noCache: false
@@ -171,7 +171,7 @@ sleep 10
 # K8sGPT 결과 확인
 echo ""
 echo "K8sGPT analysis results:"
-$(get_kubectl_cmd mgmt) -n aiops get results --no-headers 2>/dev/null | head -5 || echo "No issues found (good!)"
+$(get_kubectl_cmd mgmt) -n k8sgpt get results --no-headers 2>/dev/null | head -5 || echo "No issues found (good!)"
 
 # =============================================================================
 # 사용 가이드
@@ -186,15 +186,15 @@ echo "  [OK] K8sGPT CR         - AI analysis enabled"
 echo "================================================================="
 echo ""
 echo "View analysis results:"
-echo "  $(get_kubectl_cmd mgmt) -n aiops get results"
-echo "  $(get_kubectl_cmd mgmt) -n aiops describe result <result-name>"
+echo "  $(get_kubectl_cmd mgmt) -n k8sgpt get results"
+echo "  $(get_kubectl_cmd mgmt) -n k8sgpt describe result <result-name>"
 echo ""
 echo "Example result:"
 echo "  NAME                      KIND   NAMESPACE   AGE"
 echo "  default-pod-nginx-error   Pod    default     2m"
 echo ""
 echo "Trigger manual analysis:"
-echo "  $(get_kubectl_cmd mgmt) -n aiops annotate k8sgpt k8sgpt core.k8sgpt.ai/enabled=true --overwrite"
+echo "  $(get_kubectl_cmd mgmt) -n k8sgpt annotate k8sgpt k8sgpt core.k8sgpt.ai/enabled=true --overwrite"
 echo ""
 echo "Note: LocalAI is CPU-only and may be slow. For better performance,"
 echo "      consider using external API (OpenAI, Gemini) by updating K8sGPT CR."
