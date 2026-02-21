@@ -21,7 +21,7 @@ declare -A ADDON_CHECK=(
     ["metallb"]="mgmt:metallb-system:deployment:metallb-controller"
     ["cert-manager"]="mgmt:cert-manager:deployment:cert-manager"
     ["vault"]="mgmt:vault:statefulset:vault"
-    ["eso"]="mgmt:external-secrets:deployment:external-secrets"
+    ["eso"]="mgmt:security:deployment:external-secrets"
     ["argocd"]="mgmt:argocd:deployment:argocd-server"
     ["k8sgpt"]="mgmt:k8sgpt:deployment:k8sgpt-operator-controller-manager"
     ["thanos"]="mgmt:observability:statefulset:thanos-receive"
@@ -32,12 +32,12 @@ declare -A ADDON_CHECK=(
     ["otel-collector"]="mgmt:observability:deployment:opentelemetry-collector"
     ["istio"]="mgmt:istio-system:deployment:istiod"
     ["kiali"]="mgmt:istio-system:deployment:kiali"
-    ["kyverno"]="app1:kyverno:deployment:kyverno-admission-controller"
-    ["falco"]="app1:falco:daemonset:falco"
-    ["holmesgpt"]="mgmt:robusta:deployment:robusta-runner"
-    ["botkube"]="mgmt:botkube:deployment:botkube"
+    ["kyverno"]="app1:security:deployment:kyverno-admission-controller"
+    ["falco"]="app1:security:daemonset:falco"
+    ["holmesgpt"]="mgmt:aiops:deployment:robusta-runner"
+    ["botkube"]="mgmt:aiops:deployment:botkube"
     ["minio"]="mgmt:backup:statefulset:minio"
-    ["velero"]="mgmt:velero:deployment:velero"
+    ["velero"]="mgmt:backup:deployment:velero"
 )
 
 usage() {
