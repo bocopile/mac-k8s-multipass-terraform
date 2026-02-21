@@ -7,7 +7,7 @@ set -euo pipefail
 # - app1 클러스터: Full Mesh (Istiod + Gateway + Sidecar)
 # - app2 클러스터: 선택적 (추후 결정)
 
-ISTIO_VERSION="${1:-1.26.2}"
+ISTIO_VERSION="${1:-1.29.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
