@@ -117,9 +117,7 @@
    - 플랫폼: `install-platform-addons.sh`
    - GitOps: `install-argocd.sh`
    - 백업: `install-minio.sh`, `install-velero.sh`
-4. **아키텍처 문서** (`ARCHITECTURE.md`) - ADR 6건, 보안 6-Layer, 관찰성, 장애 도메인, 리소스 계획
-5. **구현 가이드** (`IMPLEMENTATION-GUIDE.md`)
-6. **운영 런북** (`OPERATIONS-RUNBOOK.md`)
+4. **아키텍처 문서** (`ARCHITECTURE.md`) - ADR, 보안, 관찰성, 장애 도메인, 리소스 계획, 서비스 접근 레퍼런스, 보안 운영 체크리스트
 
 ## T: 톤과 스타일
 

@@ -1,10 +1,10 @@
 # Kubernetes 멀티클러스터 아키텍처
 
-> **버전**: 5.2.0
+> **버전**: 5.3.0
 > **Kubernetes**: v1.35 (Timbernetes)
-> **최종 수정일**: 2026-02-20
-> **관련 문서**: [구현 가이드](IMPLEMENTATION-GUIDE.md) | [운영 런북](OPERATIONS-RUNBOOK.md) | [보안 정책](../../SECURITY.md)
-> **변경 이력**: v5.2.0 - ADR-013 리팩토링 완료 (33개 스크립트, -286 lines)
+> **최종 수정일**: 2026-02-21
+> **관련 문서**: [SMART+ER 프롬프트](SMARTER-PROMPT.md)
+> **변경 이력**: v5.3.0 - 문서 통합 정리 (서비스 접근 레퍼런스 병합, 보안 운영 가이드 통합)
 
 ---
 
@@ -1553,10 +1553,59 @@ bash addons/install.sh vault argocd prometheus-stack
 
 ---
 
-## 부록: 관련 문서
+## 부록 A: 서비스 접근 레퍼런스
+
+### Port-Forward (개발 환경)
+
+| 서비스 | Namespace | Port | 접속 URL | 인증 |
+|--------|-----------|------|----------|------|
+| Grafana | observability | 3000 | http://localhost:3000 | admin / admin |
+| Prometheus | observability | 9090 | http://localhost:9090 | - |
+| AlertManager | observability | 9093 | http://localhost:9093 | - |
+| ArgoCD | argocd | 8080 | https://localhost:8080 | admin / [secret] |
+| Kiali | istio-system | 20001 | http://localhost:20001/kiali | anonymous |
+| Vault UI | vault | 8200 | http://localhost:8200 | [root-token] |
+| Thanos Query | observability | 9091 | http://localhost:9091 | - |
+| Chaos Mesh | chaos-mesh | 2333 | http://localhost:2333 | - |
+
+### LoadBalancer (Cross-Cluster 통신)
+
+| 서비스 | Namespace | Port | IP 파일 | 용도 |
+|--------|-----------|------|---------|------|
+| Thanos Receive | observability | 19291 | generated/thanos-receive-ip | 메트릭 수집 |
+| Loki | observability | 3100 | generated/loki-lb-ip | 로그 수집 |
+| Vault API | vault | 8200 | generated/vault-lb-ip | Secret 관리 |
+| MinIO API | backup | 9000 | generated/minio-ip | 객체 스토리지 |
+| Istio Gateway | istio-system | 80/443 | MetalLB 자동 할당 | 앱 Ingress |
+
+### 자격증명 위치
+
+| 서비스 | 조회 방법 |
+|--------|----------|
+| ArgoCD | `kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' \| base64 -d` |
+| Vault | `cat generated/vault-root-token` |
+| MinIO | `cat generated/.credentials.env` |
+
+## 부록 B: 보안 운영 체크리스트
+
+### 자격증명 관리
+- 자동 생성: `scripts/lib/credentials.sh` (32자 base64 랜덤)
+- 저장 위치: `generated/.credentials.env` (chmod 600, .gitignore)
+- 명령줄 노출 방지: 환경변수 export 방식 사용 (Vault, MySQL)
+
+### NetworkPolicy (Zero Trust)
+- `default-deny-all`: 모든 ingress/egress 기본 차단
+- `allow-dns`: DNS 쿼리만 명시적 허용
+- 서비스별 세밀한 정책: `templates/network-policies.yaml`
+- 적용: `bash addons/scripts/apply-network-policies.sh`
+
+### 보안 사고 대응
+1. 자격증명 노출 → 즉시 rotation + Vault audit log 확인
+2. 비정상 Pod → Falco/Tetragon 확인 + `quarantine=true` 라벨로 격리
+3. 취약점 발견 → Trivy 스캔 + Kyverno 정책으로 배포 차단
+
+## 부록 C: 관련 문서
 
 | 문서 | 설명 |
 |-----|------|
-| [IMPLEMENTATION-GUIDE.md](IMPLEMENTATION-GUIDE.md) | Terraform, Helm, 설치 코드 |
-| [OPERATIONS-RUNBOOK.md](OPERATIONS-RUNBOOK.md) | 백업/복구/업그레이드 절차 |
 | [SMARTER-PROMPT.md](SMARTER-PROMPT.md) | SMART+ER 프롬프트 기반 요구사항 |
