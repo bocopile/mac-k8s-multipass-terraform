@@ -25,7 +25,7 @@ declare -A ADDON_NAMESPACES=(
     ["vault-pki"]=""
     ["eso"]="security"
     ["argocd"]="argocd"
-    ["platform-addons"]="trivy-system k8sgpt opencost vpa-system goldilocks chaos-mesh"
+    ["platform-addons"]="trivy-system k8sgpt opencost vpa goldilocks chaos-mesh"
     ["k8sgpt"]="k8sgpt localai"
     ["thanos"]="observability"
     ["prometheus-stack"]="monitoring"
@@ -38,9 +38,9 @@ declare -A ADDON_NAMESPACES=(
     ["kyverno"]="security"
     ["falco"]="security"
     ["holmesgpt"]="aiops"
-    ["botkube"]="botkube"
-    ["minio"]="minio"
-    ["velero"]="velero"
+    ["botkube"]="aiops"
+    ["minio"]="backup"
+    ["velero"]="backup"
 )
 
 # Addon별 Helm release 이름
@@ -55,6 +55,7 @@ declare -A ADDON_RELEASES=(
     ["vault-pki"]=""
     ["eso"]="external-secrets"
     ["argocd"]="argocd"
+    ["platform-addons"]="trivy-operator k8sgpt-operator opencost vpa goldilocks chaos-mesh"
     ["k8sgpt"]="k8sgpt-operator"
     ["thanos"]="thanos"
     ["prometheus-stack"]="kube-prometheus-stack"
