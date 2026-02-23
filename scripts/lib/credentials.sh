@@ -37,6 +37,7 @@ validate_credentials_file() {
 safe_source() {
   local file="$1"
   if [[ -f "$file" ]] && validate_credentials_file "$file"; then
+    # shellcheck disable=SC1090
     source "$file"
   else
     echo "WARNING: Skipping unsafe or missing credentials file: $file" >&2
@@ -64,8 +65,10 @@ get_minio_credentials() {
 
   # Generate if not exists
   if [[ -z "${MINIO_ROOT_USER:-}" ]]; then
-    export MINIO_ROOT_USER=$(generate_username "minio")
-    export MINIO_ROOT_PASSWORD=$(generate_password 32)
+    MINIO_ROOT_USER=$(generate_username "minio")
+    export MINIO_ROOT_USER
+    MINIO_ROOT_PASSWORD=$(generate_password 32)
+    export MINIO_ROOT_PASSWORD
 
     # Save to file (secure from creation)
     ensure_credentials_file
@@ -87,7 +90,8 @@ get_mysql_credentials() {
   fi
 
   if [[ -z "${MYSQL_ROOT_PASSWORD:-}" ]]; then
-    export MYSQL_ROOT_PASSWORD=$(generate_password 32)
+    MYSQL_ROOT_PASSWORD=$(generate_password 32)
+    export MYSQL_ROOT_PASSWORD
 
     # Save to file (secure from creation)
     ensure_credentials_file

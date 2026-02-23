@@ -12,7 +12,7 @@ declare -A CATEGORIES
 CATEGORIES[infrastructure]="cilium tetragon metallb gateway-api cert-manager clustermesh"
 CATEGORIES[secrets]="vault vault-pki eso"
 CATEGORIES[gitops]="argocd"
-CATEGORIES[observability]="prometheus-stack thanos prometheus-agent loki tempo otel-collector"
+CATEGORIES[observability]="prometheus-stack thanos loki tempo opensearch alloy"
 CATEGORIES[servicemesh]="istio kiali"
 CATEGORIES[security]="kyverno falco platform-addons"
 CATEGORIES[aiops]="k8sgpt holmesgpt botkube"
@@ -36,10 +36,10 @@ INSTALL_ORDER=(
     "k8sgpt"
     "thanos"
     "prometheus-stack"
-    "prometheus-agent"
     "loki"
     "tempo"
-    "otel-collector"
+    "opensearch"
+    "alloy"
     "istio"
     "kiali"
     "kyverno"
@@ -78,7 +78,7 @@ usage() {
     infrastructure  - Cilium CNI, Tetragon, MetalLB, Gateway API, cert-manager, Cluster Mesh
     secrets         - Vault, Vault PKI, External Secrets Operator
     gitops          - ArgoCD
-    observability   - Prometheus, Thanos, Loki, Tempo, OpenTelemetry
+    observability   - Prometheus, Thanos, Loki, Tempo, OpenSearch, Grafana Alloy
     servicemesh     - Istio, Kiali
     security        - Kyverno, Falco, Platform Addons (Trivy, K8sGPT Operator, etc.)
     aiops           - K8sGPT, HolmesGPT, Botkube

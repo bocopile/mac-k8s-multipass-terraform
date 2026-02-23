@@ -99,14 +99,25 @@ variable "tempo_version" {
   }
 }
 
-variable "otel_version" {
-  description = "OpenTelemetry Collector 버전 (전 클러스터)"
+variable "alloy_version" {
+  description = "Grafana Alloy 버전 (전 클러스터 - Promtail/OTel Collector/Prometheus Agent 통합)"
   type        = string
-  default     = "0.115.1"
+  default     = "1.5.0"
 
   validation {
-    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.otel_version))
-    error_message = "otel_version must be in semantic version format (e.g., '0.115.1')"
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.alloy_version))
+    error_message = "alloy_version must be in semantic version format (e.g., '1.5.0')"
+  }
+}
+
+variable "opensearch_version" {
+  description = "OpenSearch 버전 (mgmt 클러스터 - 감사·보안 로그 검색 분석)"
+  type        = string
+  default     = "2.18.0"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.opensearch_version))
+    error_message = "opensearch_version must be in semantic version format (e.g., '2.18.0')"
   }
 }
 

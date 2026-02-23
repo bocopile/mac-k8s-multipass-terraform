@@ -61,6 +61,7 @@ for CLUSTER in "${CLUSTERS[@]}"; do
   check "MetalLB running" bash -c \
     "$(get_kubectl_cmd "${CLUSTER}") -n metallb-system get deploy controller -o jsonpath='{.status.availableReplicas}' | grep -q 1"
 
+  # shellcheck disable=SC2046
   check "IPAddressPool exists" $(get_kubectl_cmd "${CLUSTER}") \
     -n metallb-system get ipaddresspool "${CLUSTER}-pool"
 done

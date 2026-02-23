@@ -26,10 +26,11 @@ declare -A ADDON_CHECK=(
     ["k8sgpt"]="mgmt:k8sgpt:deployment:k8sgpt-operator-controller-manager"
     ["thanos"]="mgmt:observability:statefulset:thanos-receive"
     ["prometheus-stack"]="mgmt:monitoring:statefulset:prometheus-kube-prometheus-stack-prometheus"
-    ["prometheus-agent"]="app1:monitoring:statefulset:prometheus-prometheus-agent"
+    ["alloy"]="mgmt:observability:daemonset:alloy"
+    ["alloy-app1"]="app1:observability:daemonset:alloy"
+    ["opensearch"]="mgmt:observability:statefulset:opensearch"
     ["loki"]="mgmt:observability:statefulset:loki"
     ["tempo"]="mgmt:observability:deployment:tempo"
-    ["otel-collector"]="mgmt:observability:deployment:opentelemetry-collector"
     ["istio"]="mgmt:istio-system:deployment:istiod"
     ["kiali"]="mgmt:istio-system:deployment:kiali"
     ["kyverno"]="app1:security:deployment:kyverno-admission-controller"
@@ -96,9 +97,11 @@ verify_addon() {
         deployment)
             if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                 -n "$namespace" get deployment "$name" &>/dev/null; then
-                local replicas_ready=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
+                local replicas_ready
+                local replicas_desired
+                replicas_ready=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                     -n "$namespace" get deployment "$name" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-                local replicas_desired=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
+                replicas_desired=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                     -n "$namespace" get deployment "$name" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
 
                 if [[ "$replicas_ready" == "$replicas_desired" ]] && [[ "$replicas_ready" -gt 0 ]]; then
@@ -109,9 +112,11 @@ verify_addon() {
         statefulset)
             if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                 -n "$namespace" get statefulset "$name" &>/dev/null; then
-                local replicas_ready=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
+                local replicas_ready
+                local replicas_desired
+                replicas_ready=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                     -n "$namespace" get statefulset "$name" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-                local replicas_desired=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
+                replicas_desired=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                     -n "$namespace" get statefulset "$name" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
 
                 if [[ "$replicas_ready" == "$replicas_desired" ]] && [[ "$replicas_ready" -gt 0 ]]; then
@@ -122,9 +127,11 @@ verify_addon() {
         daemonset)
             if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                 -n "$namespace" get daemonset "$name" &>/dev/null; then
-                local number_ready=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
+                local number_ready
+                local desired_number
+                number_ready=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                     -n "$namespace" get daemonset "$name" -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
-                local desired_number=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
+                desired_number=$(kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kube_context" \
                     -n "$namespace" get daemonset "$name" -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "1")
 
                 if [[ "$number_ready" == "$desired_number" ]] && [[ "$number_ready" -gt 0 ]]; then
@@ -145,7 +152,6 @@ verify_addon() {
 
 main() {
     local addons_to_verify=()
-    local summary_mode=false
 
     # 인자 파싱
     while [[ $# -gt 0 ]]; do
@@ -155,7 +161,6 @@ main() {
                 shift
                 ;;
             --summary)
-                summary_mode=true
                 shift
                 ;;
             --list)

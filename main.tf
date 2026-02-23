@@ -140,7 +140,7 @@ resource "null_resource" "install_cilium" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-cilium.sh ${var.cilium_version}"
+    command = "bash ${path.module}/addons/scripts/install-cilium.sh ${var.cilium_version}"
   }
 }
 
@@ -157,7 +157,7 @@ resource "null_resource" "install_metallb" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-metallb.sh ${var.metallb_version}"
+    command = "bash ${path.module}/addons/scripts/install-metallb.sh ${var.metallb_version}"
   }
 }
 
@@ -173,7 +173,7 @@ resource "null_resource" "setup_clustermesh" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/setup-clustermesh.sh"
+    command = "bash ${path.module}/addons/scripts/setup-clustermesh.sh"
   }
 }
 
@@ -190,7 +190,7 @@ resource "null_resource" "install_tetragon" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-tetragon.sh ${var.tetragon_version}"
+    command = "bash ${path.module}/addons/scripts/install-tetragon.sh ${var.tetragon_version}"
   }
 }
 
@@ -206,7 +206,7 @@ resource "null_resource" "install_gateway_api" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-gateway-api.sh"
+    command = "bash ${path.module}/addons/scripts/install-gateway-api.sh"
   }
 }
 
@@ -223,7 +223,7 @@ resource "null_resource" "install_cert_manager" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-cert-manager.sh ${var.cert_manager_version}"
+    command = "bash ${path.module}/addons/scripts/install-cert-manager.sh ${var.cert_manager_version}"
   }
 }
 
@@ -244,7 +244,7 @@ resource "null_resource" "install_platform_addons" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-platform-addons.sh"
+    command = "bash ${path.module}/addons/scripts/install-platform-addons.sh"
   }
 }
 
@@ -263,7 +263,7 @@ resource "null_resource" "install_thanos" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-thanos.sh"
+    command = "bash ${path.module}/addons/scripts/install-thanos.sh"
   }
 }
 
@@ -284,26 +284,55 @@ resource "null_resource" "install_eso" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-eso.sh"
+    command = "bash ${path.module}/addons/scripts/install-eso.sh"
   }
 }
 
 # =============================================================================
-# Prometheus Agent Mode (app 클러스터) — ADR-006, C2
+# OpenSearch (mgmt 클러스터) — 감사·보안 로그 검색 분석
 # =============================================================================
-resource "null_resource" "install_prometheus_agent" {
+resource "null_resource" "install_opensearch" {
   depends_on = [
-    null_resource.install_thanos,
+    null_resource.install_loki,
     local_file.cluster_config,
   ]
 
   triggers = {
-    thanos_id     = null_resource.install_thanos.id
-    clusters_hash = md5(local.clusters_json)
+    loki_id            = null_resource.install_loki.id
+    opensearch_version = var.opensearch_version
+    clusters_hash      = md5(local.clusters_json)
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-prometheus-agent.sh"
+    command = "bash ${path.module}/addons/scripts/install-opensearch.sh ${var.opensearch_version}"
+  }
+}
+
+# =============================================================================
+# Grafana Alloy (전 클러스터) — ADR-006, C2
+# Promtail + Prometheus Agent + OTel Collector 통합 에이전트
+# OpenSearch 설치 후 선별 로그 이중화 활성화
+# =============================================================================
+resource "null_resource" "install_alloy" {
+  depends_on = [
+    null_resource.install_thanos,
+    null_resource.install_loki,
+    null_resource.install_tempo,
+    null_resource.install_opensearch,
+    local_file.cluster_config,
+  ]
+
+  triggers = {
+    thanos_id          = null_resource.install_thanos.id
+    loki_id            = null_resource.install_loki.id
+    tempo_id           = null_resource.install_tempo.id
+    opensearch_id      = null_resource.install_opensearch.id
+    alloy_version      = var.alloy_version
+    clusters_hash      = md5(local.clusters_json)
+  }
+
+  provisioner "local-exec" {
+    command = "bash ${path.module}/addons/scripts/install-alloy.sh"
   }
 }
 
@@ -320,7 +349,7 @@ resource "null_resource" "install_kyverno" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-kyverno.sh ${var.kyverno_version}"
+    command = "bash ${path.module}/addons/scripts/install-kyverno.sh ${var.kyverno_version}"
   }
 }
 
@@ -337,7 +366,7 @@ resource "null_resource" "install_falco" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-falco.sh ${var.falco_version}"
+    command = "bash ${path.module}/addons/scripts/install-falco.sh ${var.falco_version}"
   }
 }
 
@@ -356,7 +385,7 @@ resource "null_resource" "install_minio" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-minio.sh"
+    command = "bash ${path.module}/addons/scripts/install-minio.sh"
   }
 }
 
@@ -375,7 +404,7 @@ resource "null_resource" "install_velero" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-velero.sh"
+    command = "bash ${path.module}/addons/scripts/install-velero.sh"
   }
 }
 
@@ -394,7 +423,7 @@ resource "null_resource" "install_vault" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-vault.sh"
+    command = "bash ${path.module}/addons/scripts/install-vault.sh"
   }
 }
 
@@ -413,7 +442,7 @@ resource "null_resource" "install_prometheus_stack" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-prometheus-stack.sh"
+    command = "bash ${path.module}/addons/scripts/install-prometheus-stack.sh"
   }
 }
 
@@ -432,7 +461,7 @@ resource "null_resource" "install_loki" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-loki.sh"
+    command = "bash ${path.module}/addons/scripts/install-loki.sh"
   }
 }
 
@@ -452,7 +481,7 @@ resource "null_resource" "install_argocd" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-argocd.sh"
+    command = "bash ${path.module}/addons/scripts/install-argocd.sh"
   }
 }
 
@@ -473,7 +502,7 @@ resource "null_resource" "setup_vault_pki" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/setup-vault-pki.sh"
+    command = "bash ${path.module}/addons/scripts/setup-vault-pki.sh"
   }
 }
 
@@ -495,7 +524,7 @@ resource "null_resource" "install_istio" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-istio.sh ${var.istio_version}"
+    command = "bash ${path.module}/addons/scripts/install-istio.sh ${var.istio_version}"
   }
 }
 
@@ -516,27 +545,7 @@ resource "null_resource" "install_tempo" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-tempo.sh ${var.tempo_version}"
-  }
-}
-
-# OpenTelemetry Collector (텔레메트리 수집, 전 클러스터)
-resource "null_resource" "install_otel_collector" {
-  depends_on = [
-    null_resource.install_tempo,
-    null_resource.install_istio,
-    local_file.cluster_config,
-  ]
-
-  triggers = {
-    tempo_id      = null_resource.install_tempo.id
-    istio_id      = null_resource.install_istio.id
-    otel_version  = var.otel_version
-    clusters_hash = md5(local.clusters_json)
-  }
-
-  provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-otel-collector.sh ${var.otel_version}"
+    command = "bash ${path.module}/addons/scripts/install-tempo.sh ${var.tempo_version}"
   }
 }
 
@@ -544,21 +553,21 @@ resource "null_resource" "install_otel_collector" {
 resource "null_resource" "install_kiali" {
   depends_on = [
     null_resource.install_istio,
-    null_resource.install_otel_collector,
+    null_resource.install_alloy,
     null_resource.install_prometheus_stack,
     local_file.cluster_config,
   ]
 
   triggers = {
     istio_id      = null_resource.install_istio.id
-    otel_id       = null_resource.install_otel_collector.id
+    alloy_id      = null_resource.install_alloy.id
     prometheus_id = null_resource.install_prometheus_stack.id
     kiali_version = var.kiali_version
     clusters_hash = md5(local.clusters_json)
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-kiali.sh ${var.kiali_version}"
+    command = "bash ${path.module}/addons/scripts/install-kiali.sh ${var.kiali_version}"
   }
 }
 
@@ -578,7 +587,7 @@ resource "null_resource" "install_k8sgpt" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-k8sgpt.sh"
+    command = "bash ${path.module}/addons/scripts/install-k8sgpt.sh"
   }
 }
 
@@ -602,7 +611,7 @@ resource "null_resource" "install_holmesgpt" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/scripts/install-holmesgpt.sh"
+    command = "bash ${path.module}/addons/scripts/install-holmesgpt.sh"
   }
 }
 */
@@ -627,7 +636,7 @@ resource "null_resource" "install_holmesgpt" {
 #   }
 #
 #   provisioner "local-exec" {
-#     command = "bash ${path.module}/scripts/install-botkube.sh"
+#     command = "bash ${path.module}/addons/scripts/install-botkube.sh"
 #   }
 # }
 

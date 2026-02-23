@@ -106,6 +106,7 @@ helm upgrade --install opencost opencost/opencost \
   --set opencost.prometheus.internal.serviceName="kube-prometheus-stack-prometheus" \
   --set opencost.prometheus.internal.namespaceName="monitoring" \
   --set opencost.prometheus.internal.port=9090 \
+  --set opencost.prometheus.external.url="${PROM_ENDPOINT}" \
   --set opencost.ui.enabled=true \
   --set serviceMonitor.enabled=true \
   --wait --timeout 120s

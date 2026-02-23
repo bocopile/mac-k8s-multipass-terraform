@@ -542,7 +542,7 @@ flowchart TB
 - **이유**: Multipass 브리지 네트워크에서 BGP 불가
 - **설치**: `addons/scripts/install-metallb.sh`
 
-### 5.5 Service Mesh: Istio (예정)
+### 5.5 Service Mesh: Istio
 
 #### 5.5.1 아키텍처 개요
 

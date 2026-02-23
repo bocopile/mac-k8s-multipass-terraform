@@ -29,7 +29,7 @@ if ! ISTIOCTL_VERSION=$(istioctl version --remote=false --short 2>/dev/null); th
   echo "WARNING: Could not determine istioctl version"
   ISTIOCTL_VERSION="unknown"
 fi
-echo "Using istioctl version: ${ISTIOCTL_VERSION}"
+echo "Using istioctl version: ${ISTIOCTL_VERSION} (requested: ${ISTIO_VERSION})"
 
 # kubectl 확인
 if ! command -v kubectl &>/dev/null; then

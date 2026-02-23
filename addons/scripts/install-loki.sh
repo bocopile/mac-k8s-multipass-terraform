@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Usage: install-loki.sh
-# mgmt 클러스터에 Loki를 설치하고, app 클러스터에 Promtail을 배포합니다.
+# mgmt 클러스터에 Loki를 설치합니다.
 # - Loki: SingleBinary 모드 (로컬 개발 환경 적합)
-# - Promtail: 각 app 클러스터의 로그를 mgmt의 Loki로 전송
+# - 로그 수집 에이전트: Grafana Alloy (install-alloy.sh에서 처리)
 # - ADR-006 관찰성 아키텍처 참조
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,7 +25,7 @@ add_helm_repo "grafana" "${HELM_REPO_GRAFANA}"
 # 1. Loki 설치 (mgmt 클러스터)
 # =============================================================================
 echo ""
-echo "=== [1/2] Installing Loki on mgmt cluster ==="
+echo "=== [1/1] Installing Loki on mgmt cluster ==="
 
 ensure_namespace "${NAMESPACE_OBSERVABILITY}" "mgmt"
 
@@ -132,55 +132,20 @@ else
 fi
 
 # =============================================================================
-# 2. Promtail 설치 (app 클러스터들)
-# =============================================================================
-echo ""
-echo "=== [2/2] Installing Promtail on app clusters ==="
-
-CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
-
-for CLUSTER in ${CLUSTERS}; do
-  if [[ "${CLUSTER}" == "mgmt" ]]; then
-    # mgmt는 Loki와 같은 클러스터이므로 in-cluster 주소 사용
-    LOKI_URL="http://loki.observability.svc.cluster.local:3100"
-  else
-    # app 클러스터는 LoadBalancer IP로 접근
-    LOKI_URL="http://${LOKI_LB_IP}:3100"
-  fi
-
-  echo ""
-  echo "--- Installing Promtail on ${CLUSTER} (loki: ${LOKI_URL}) ---"
-
-  ensure_namespace_privileged "${NAMESPACE_OBSERVABILITY}" "${CLUSTER}"
-
-  $(get_helm_cmd "${CLUSTER}") upgrade --install promtail grafana/promtail \
-    --namespace "${NAMESPACE_OBSERVABILITY}" \
-    --set config.clients[0].url="${LOKI_URL}/loki/api/v1/push" \
-    --set config.snippets.extraRelabelConfigs[0].target_label=cluster \
-    --set config.snippets.extraRelabelConfigs[0].replacement="${CLUSTER}" \
-    --set config.snippets.extraRelabelConfigs[0].action=replace \
-    --set resources.requests.memory=64Mi \
-    --set resources.requests.cpu=50m \
-    --set resources.limits.memory=128Mi \
-    --set resources.limits.cpu=100m \
-    --wait --timeout 120s
-
-  echo "Promtail installed on ${CLUSTER}."
-done
-
-# =============================================================================
 # 설치 요약
 # =============================================================================
 echo ""
 echo "================================================================="
-echo "  Loki + Promtail Installation Summary"
+echo "  Loki Installation Summary"
 echo "================================================================="
-echo "  [OK] Loki         - mgmt:observability namespace (SingleBinary, 7d retention)"
-echo "  [OK] Promtail     - all clusters:observability namespace (DaemonSet)"
+echo "  [OK] Loki - mgmt:observability namespace (SingleBinary, 7d retention)"
+echo ""
+echo "NOTE: 로그 수집 에이전트는 Grafana Alloy가 담당합니다."
+echo "  다음 단계: addons/install.sh alloy"
 echo "================================================================="
 echo ""
 echo "Query logs via Grafana:"
 echo "  $(get_kubectl_cmd mgmt) -n ${NAMESPACE_MONITORING} port-forward svc/kube-prometheus-stack-grafana 3000:80"
 echo "  → Explore → Loki datasource → {cluster=\"app1\"}"
 echo ""
-echo "Estimated RAM: ~400MB (Loki on mgmt) + ~100MB per cluster (Promtail)"
+echo "Estimated RAM: ~400MB (Loki on mgmt)"
