@@ -50,12 +50,12 @@ for CLUSTER in ${CLUSTERS}; do
 
   # PodDisruptionBudget 생성 (admission webhook 보호)
   echo "Creating PodDisruptionBudgets for Kyverno on ${CLUSTER}..."
-  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<'EOF'
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: kyverno-admission-controller-pdb
-  namespace: security
+  namespace: ${NAMESPACE_SECURITY}
 spec:
   maxUnavailable: 0
   selector:
@@ -67,7 +67,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: kyverno-background-controller-pdb
-  namespace: security
+  namespace: ${NAMESPACE_SECURITY}
 spec:
   maxUnavailable: 0
   selector:

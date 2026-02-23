@@ -49,7 +49,10 @@ $(get_helm_cmd mgmt) upgrade --install argocd argo/argo-cd \
   --set redis.resources.requests.cpu=50m \
   --set redis.resources.limits.memory=128Mi \
   --set redis.resources.limits.cpu=100m \
-  --set global.priorityClassName=platform-normal \
+  --set server.priorityClassName=platform-normal \
+  --set controller.priorityClassName=platform-normal \
+  --set repoServer.priorityClassName=platform-normal \
+  --set redis.priorityClassName=platform-normal \
   --wait --timeout 300s
 
 echo "ArgoCD installed."
