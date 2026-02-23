@@ -267,6 +267,9 @@ main() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "✅ All specified addons have been uninstalled."
+    echo ""
+    echo "NOTE: /etc/hosts 정리가 필요한 경우:"
+    echo "  sudo sed -i '' '/# Kubernetes Multi-Cluster Services/,/# ========================================\$/d' /etc/hosts"
 }
 
 main "$@"

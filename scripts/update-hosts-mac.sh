@@ -49,13 +49,18 @@ LOKI_IP=$($(get_kubectl_cmd mgmt) \
 GATEWAY_IP=$($(get_kubectl_cmd mgmt) \
   get svc -n istio-system istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
+# OpenSearch IP
+OPENSEARCH_IP=$($(get_kubectl_cmd mgmt) \
+  get svc -n observability opensearch-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+
 # 조회 결과 출력
 echo "Found LoadBalancer IPs:"
-echo "  MinIO:    ${MINIO_IP:-NOT FOUND}"
-echo "  Vault:    ${VAULT_IP:-NOT FOUND}"
-echo "  Thanos:   ${THANOS_IP:-NOT FOUND}"
-echo "  Loki:     ${LOKI_IP:-NOT FOUND}"
-echo "  Gateway:  ${GATEWAY_IP:-NOT FOUND}"
+echo "  MinIO:      ${MINIO_IP:-NOT FOUND}"
+echo "  Vault:      ${VAULT_IP:-NOT FOUND}"
+echo "  Thanos:     ${THANOS_IP:-NOT FOUND}"
+echo "  Loki:       ${LOKI_IP:-NOT FOUND}"
+echo "  Gateway:    ${GATEWAY_IP:-NOT FOUND}"
+echo "  OpenSearch: ${OPENSEARCH_IP:-NOT FOUND}"
 echo ""
 
 # /etc/hosts 백업
@@ -112,6 +117,13 @@ if [[ -n "${GATEWAY_IP}" ]]; then
   echo "${GATEWAY_IP}    api.local" >> "${HOSTS_FILE}"
 fi
 
+if [[ -n "${OPENSEARCH_IP}" ]]; then
+  echo "" >> "${HOSTS_FILE}"
+  echo "# OpenSearch Log Analytics" >> "${HOSTS_FILE}"
+  echo "${OPENSEARCH_IP}    opensearch.local" >> "${HOSTS_FILE}"
+  echo "${OPENSEARCH_IP}    opensearch-dashboards.local" >> "${HOSTS_FILE}"
+fi
+
 echo "# ========================================" >> "${HOSTS_FILE}"
 echo "" >> "${HOSTS_FILE}"
 
@@ -131,7 +143,8 @@ echo "You can now access services:"
 [[ -n "${VAULT_IP}" ]] && echo "  Vault:         http://vault.local:8200"
 [[ -n "${THANOS_IP}" ]] && echo "  Thanos:        http://thanos.local:19291"
 [[ -n "${LOKI_IP}" ]] && echo "  Loki:          http://loki.local:3100"
-[[ -n "${GATEWAY_IP}" ]] && echo "  Gateway:       http://gateway.local"
+[[ -n "${GATEWAY_IP}" ]] && echo "  Gateway:          http://gateway.local"
+[[ -n "${OPENSEARCH_IP}" ]] && echo "  OpenSearch:       http://opensearch-dashboards.local:5601"
 echo ""
 echo "Backup saved to: ${BACKUP_FILE}"
 echo ""
