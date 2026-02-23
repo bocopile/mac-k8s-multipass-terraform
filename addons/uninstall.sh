@@ -15,6 +15,7 @@ fi
 
 # Addon별 네임스페이스 및 리소스 정의
 declare -A ADDON_NAMESPACES=(
+    ["priority-classes"]="_cluster_scoped_"
     ["cilium"]="cilium-system kube-system"
     ["tetragon"]="kube-system"
     ["metallb"]="metallb-system"
@@ -45,6 +46,7 @@ declare -A ADDON_NAMESPACES=(
 
 # Addon별 Helm release 이름
 declare -A ADDON_RELEASES=(
+    ["priority-classes"]=""
     ["cilium"]="cilium"
     ["tetragon"]="tetragon"
     ["metallb"]="metallb"
@@ -101,6 +103,7 @@ UNINSTALL_ORDER=(
     "metallb"
     "tetragon"
     "cilium"
+    "priority-classes"
 )
 
 usage() {
@@ -140,6 +143,21 @@ uninstall_addon() {
     local addon=$1
     local namespaces="${ADDON_NAMESPACES[$addon]:-}"
     local releases="${ADDON_RELEASES[$addon]:-}"
+
+    # Cluster-scoped 리소스 처리 (네임스페이스 없음)
+    if [[ "$namespaces" == "_cluster_scoped_" ]]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Uninstalling: $addon (cluster-scoped)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        for context in "kubernetes-admin@mgmt" "kubernetes-admin@app1" "kubernetes-admin@app2"; do
+            echo "Deleting PriorityClasses on ${context}..."
+            kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$context" \
+                delete priorityclass platform-critical platform-normal --ignore-not-found || true
+        done
+        echo "✅ $addon uninstalled"
+        return 0
+    fi
 
     if [[ -z "$namespaces" ]]; then
         echo "WARNING: No namespace defined for addon: $addon"

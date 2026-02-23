@@ -56,6 +56,7 @@ $(get_helm_cmd mgmt) upgrade --install opensearch opensearch/opensearch \
   --set persistence.storageClass=local-path-retain \
   --set service.type=ClusterIP \
   --set "config.opensearch\\.yml=cluster.name: mgmt-logs\nnetwork.host: 0.0.0.0\ndiscovery.type: single-node\nplugins.security.disabled: true\n" \
+  --set priorityClassName=platform-normal \
   --wait --timeout 300s
 
 echo "OpenSearch installed."
@@ -188,6 +189,7 @@ $(get_helm_cmd mgmt) upgrade --install opensearch-dashboards opensearch/opensear
   --set resources.limits.memory=512Mi \
   --set resources.limits.cpu=300m \
   --set service.type=ClusterIP \
+  --set priorityClassName=platform-normal \
   --wait --timeout 180s
 
 echo "OpenSearch Dashboards installed."

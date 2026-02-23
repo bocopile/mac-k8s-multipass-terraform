@@ -72,6 +72,9 @@ $(get_helm_cmd mgmt) upgrade --install kube-prometheus-stack prometheus-communit
   --set alertmanager.service.type=ClusterIP \
   --set nodeExporter.enabled=true \
   --set kubeStateMetrics.enabled=true \
+  --set prometheus.prometheusSpec.priorityClassName=platform-normal \
+  --set grafana.priorityClassName=platform-normal \
+  --set alertmanager.alertmanagerSpec.priorityClassName=platform-normal \
   --wait --timeout 300s
 
 echo "kube-prometheus-stack installed."

@@ -48,6 +48,7 @@ $(get_helm_cmd mgmt) upgrade --install tempo grafana/tempo \
   --set resources.limits.cpu=1000m \
   --set resources.limits.memory=1Gi \
   --set service.type=ClusterIP \
+  --set priorityClassName=platform-normal \
   --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
 echo "Tempo installed successfully."

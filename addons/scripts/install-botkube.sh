@@ -95,6 +95,7 @@ helm upgrade --install botkube botkube/botkube \
   --set sources.k8s-recommendations.recommendations.enabled=true \
   --set rbac.create=true \
   --set serviceAccount.create=true \
+  --set priorityClassName=platform-normal \
   --wait --timeout 180s
 
 echo "Botkube installed."

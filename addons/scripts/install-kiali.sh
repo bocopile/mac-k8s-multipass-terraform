@@ -97,6 +97,7 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
     --set server.metrics_port=9090 \
     --set server.port=20001 \
     --set server.web_port=20001 \
+    --set deployment.priorityClassName=platform-normal \
     --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   echo "Kiali Server installed on ${CLUSTER}"

@@ -46,6 +46,7 @@ helm upgrade --install robusta robusta/robusta \
   --set runner.resources.requests.cpu=500m \
   --set runner.resources.limits.memory=1Gi \
   --set runner.resources.limits.cpu=1000m \
+  --set runner.priorityClassName=platform-normal \
   --wait --timeout 180s
 
 echo "Robusta installed."

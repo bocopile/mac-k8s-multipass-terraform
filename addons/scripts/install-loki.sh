@@ -55,6 +55,7 @@ $(get_helm_cmd mgmt) upgrade --install loki grafana/loki \
   --set write.replicas=0 \
   --set chunksCache.enabled=false \
   --set resultsCache.enabled=false \
+  --set singleBinary.priorityClassName=platform-normal \
   --wait --timeout 180s
 
 echo "Loki installed on mgmt cluster."

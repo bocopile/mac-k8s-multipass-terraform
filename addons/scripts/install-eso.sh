@@ -48,6 +48,9 @@ for CLUSTER in ${CLUSTERS}; do
     --set installCRDs=true \
     --set prometheus.enabled=true \
     --set serviceMonitor.enabled=true \
+    --set priorityClassName=platform-normal \
+    --set webhook.priorityClassName=platform-normal \
+    --set certController.priorityClassName=platform-normal \
     --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   echo "Waiting for ESO webhook..."

@@ -44,6 +44,11 @@ for CLUSTER in ${CLUSTERS}; do
     --set falcosidekick.enabled=true \
     --set falcosidekick.config.prometheus.enabled=true \
     --set serviceMonitor.enabled=true \
+    --set resources.requests.cpu=200m \
+    --set resources.requests.memory=256Mi \
+    --set resources.limits.cpu=500m \
+    --set resources.limits.memory=512Mi \
+    --set priorityClassName=platform-normal \
     --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   # DaemonSet 준비 대기

@@ -16,6 +16,7 @@ fi
 # Addon별 검증 설정
 declare -A ADDON_CHECK=(
     # Format: "context:namespace:deployment|statefulset|daemonset:name"
+    # priority-classes: cluster-scoped 리소스이므로 verify.sh에서 별도 확인
     ["cilium"]="mgmt:kube-system:daemonset:cilium"
     ["tetragon"]="mgmt:kube-system:daemonset:tetragon"
     ["metallb"]="mgmt:metallb-system:deployment:metallb-controller"

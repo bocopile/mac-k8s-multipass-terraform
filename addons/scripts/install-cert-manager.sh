@@ -32,6 +32,21 @@ for CLUSTER in ${CLUSTERS}; do
     --set crds.enabled=true \
     --set prometheus.enabled=true \
     --set prometheus.servicemonitor.enabled=true \
+    --set resources.requests.cpu=50m \
+    --set resources.requests.memory=64Mi \
+    --set resources.limits.cpu=100m \
+    --set resources.limits.memory=128Mi \
+    --set webhook.resources.requests.cpu=10m \
+    --set webhook.resources.requests.memory=32Mi \
+    --set webhook.resources.limits.cpu=50m \
+    --set webhook.resources.limits.memory=64Mi \
+    --set cainjector.resources.requests.cpu=10m \
+    --set cainjector.resources.requests.memory=32Mi \
+    --set cainjector.resources.limits.cpu=50m \
+    --set cainjector.resources.limits.memory=64Mi \
+    --set priorityClassName=platform-critical \
+    --set webhook.priorityClassName=platform-critical \
+    --set cainjector.priorityClassName=platform-critical \
     --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   wait_for_deployment "cert-manager" "cert-manager-webhook" "${TIMEOUT_POD_READY}" "${CONTEXT}"

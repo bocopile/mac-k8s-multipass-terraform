@@ -87,6 +87,7 @@ spec:
     - name: istio-ingressgateway
       enabled: true
       k8s:
+        priorityClassName: platform-normal
         service:
           type: LoadBalancer
         resources:
@@ -106,6 +107,7 @@ spec:
     pilot:
       enabled: true
       k8s:
+        priorityClassName: platform-normal
         resources:
           requests:
             cpu: 200m

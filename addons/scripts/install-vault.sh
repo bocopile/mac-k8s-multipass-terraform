@@ -48,6 +48,8 @@ $(get_helm_cmd mgmt) upgrade --install vault hashicorp/vault \
   --set injector.resources.requests.cpu="${RESOURCES_SMALL_REQUESTS_CPU}" \
   --set injector.resources.limits.memory="${RESOURCES_SMALL_LIMITS_MEMORY}" \
   --set injector.resources.limits.cpu="${RESOURCES_SMALL_LIMITS_CPU}" \
+  --set server.priorityClassName=platform-critical \
+  --set injector.priorityClassName=platform-critical \
   --set ui.enabled=true \
   --set ui.serviceType=ClusterIP \
   --wait --timeout "${TIMEOUT_DEPLOYMENT}s"

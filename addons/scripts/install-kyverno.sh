@@ -38,11 +38,43 @@ for CLUSTER in ${CLUSTERS}; do
     --set backgroundController.replicas=1 \
     --set cleanupController.replicas=1 \
     --set reportsController.replicas=1 \
+    --set admissionController.priorityClassName=platform-normal \
+    --set backgroundController.priorityClassName=platform-normal \
+    --set cleanupController.priorityClassName=platform-normal \
+    --set reportsController.priorityClassName=platform-normal \
     --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   echo "Waiting for Kyverno admission controller..."
   $(get_kubectl_cmd "${CLUSTER}") -n "${NAMESPACE_SECURITY}" wait deploy/kyverno-admission-controller \
     --for=condition=available --timeout="${TIMEOUT_POD_READY}s"
+
+  # PodDisruptionBudget 생성 (admission webhook 보호)
+  echo "Creating PodDisruptionBudgets for Kyverno on ${CLUSTER}..."
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<'EOF'
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kyverno-admission-controller-pdb
+  namespace: security
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: admission-controller
+      app.kubernetes.io/instance: kyverno
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kyverno-background-controller-pdb
+  namespace: security
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: background-controller
+      app.kubernetes.io/instance: kyverno
+EOF
 
   # 기본 정책 적용 (§7.3 정책 범위)
   echo "Applying Kyverno policies on ${CLUSTER}..."

@@ -49,9 +49,40 @@ $(get_helm_cmd mgmt) upgrade --install argocd argo/argo-cd \
   --set redis.resources.requests.cpu=50m \
   --set redis.resources.limits.memory=128Mi \
   --set redis.resources.limits.cpu=100m \
+  --set global.priorityClassName=platform-normal \
   --wait --timeout 300s
 
 echo "ArgoCD installed."
+
+# =============================================================================
+# PodDisruptionBudget 생성 (자발적 중단 보호)
+# maxUnavailable:0 + replica:1 → 노드 드레인 시 Pod 보호
+# =============================================================================
+log_info "Creating PodDisruptionBudgets for ArgoCD"
+
+$(get_kubectl_cmd mgmt) apply -f - <<'EOF'
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-server-pdb
+  namespace: argocd
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-server
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-repo-server-pdb
+  namespace: argocd
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-repo-server
+EOF
 
 # =============================================================================
 # ArgoCD 초기 관리자 비밀번호 확인

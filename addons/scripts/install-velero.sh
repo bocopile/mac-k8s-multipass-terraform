@@ -88,6 +88,7 @@ aws_secret_access_key=${MINIO_ROOT_PASSWORD}
     --set initContainers[0].volumeMounts[0].name=plugins \
     --set metrics.enabled=true \
     --set metrics.serviceMonitor.enabled=true \
+    --set priorityClassName=platform-normal \
     --wait --timeout 180s
 
   log_info "Velero installed on ${CLUSTER} (backup prefix: ${CLUSTER}/)"

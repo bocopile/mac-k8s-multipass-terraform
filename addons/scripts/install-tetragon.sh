@@ -26,6 +26,11 @@ for CLUSTER in ${CLUSTERS}; do
     --namespace kube-system \
     --set tetragon.enableProcessCred=true \
     --set tetragon.enableProcessNs=true \
+    --set tetragon.resources.requests.cpu=200m \
+    --set tetragon.resources.requests.memory=128Mi \
+    --set tetragon.resources.limits.cpu=500m \
+    --set tetragon.resources.limits.memory=256Mi \
+    --set priorityClassName=platform-normal \
     --wait --timeout "${TIMEOUT_POD_READY}s"
 
   # DaemonSet 준비 대기

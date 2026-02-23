@@ -51,6 +51,7 @@ $(get_helm_cmd mgmt) upgrade --install minio bitnami/minio \
   --set resources.requests.cpu="${RESOURCES_SMALL_REQUESTS_CPU}" \
   --set resources.limits.memory="${RESOURCES_MEDIUM_LIMITS_MEMORY}" \
   --set resources.limits.cpu="${RESOURCES_SMALL_LIMITS_CPU}" \
+  --set priorityClassName=platform-normal \
   --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
 # Wait for deployment

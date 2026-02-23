@@ -61,6 +61,8 @@ for CLUSTER in ${CLUSTERS}; do
     --set hubble.ui.enabled=true \
     --set kubeProxyReplacement=true \
     --set "ipam.operator.clusterPoolIPv4PodCIDRList={${POD_CIDR}}" \
+    --set priorityClassName=platform-critical \
+    --set operator.priorityClassName=platform-critical \
     --context "${CONTEXT}" \
     --kubeconfig "${KUBECONFIG_MULTI}"
 

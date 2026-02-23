@@ -56,6 +56,7 @@ helm upgrade --install trivy-operator aquasecurity/trivy-operator \
   --set operator.scanJobsConcurrentLimit=2 \
   --set operator.metricsVulnIdEnabled=true \
   --set serviceMonitor.enabled=true \
+  --set priorityClassName=platform-normal \
   --wait --timeout 180s
 
 echo "Trivy Operator installed. VulnerabilityReports:"
@@ -71,6 +72,7 @@ helm upgrade --install k8sgpt-operator k8sgpt/k8sgpt-operator \
   --namespace k8sgpt --create-namespace \
   --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set serviceMonitor.enabled=true \
+  --set priorityClassName=platform-normal \
   --wait --timeout 120s
 
 echo "K8sGPT Operator installed."
@@ -109,6 +111,7 @@ helm upgrade --install opencost opencost/opencost \
   --set opencost.prometheus.external.url="${PROM_ENDPOINT}" \
   --set opencost.ui.enabled=true \
   --set serviceMonitor.enabled=true \
+  --set priorityClassName=platform-normal \
   --wait --timeout 120s
 
 echo "OpenCost installed. UI available via port-forward:"
@@ -127,6 +130,7 @@ helm upgrade --install vpa fairwinds-stable/vpa \
   --set recommender.enabled=true \
   --set updater.enabled=false \
   --set admissionController.enabled=false \
+  --set priorityClassName=platform-normal \
   --wait --timeout 120s
 
 echo "VPA installed (recommender only, updater/admission disabled)."
@@ -137,6 +141,7 @@ helm upgrade --install goldilocks fairwinds-stable/goldilocks \
   --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set dashboard.enabled=true \
   --set dashboard.service.type=ClusterIP \
+  --set priorityClassName=platform-normal \
   --wait --timeout 120s
 
 echo "Goldilocks installed. Dashboard:"
@@ -157,6 +162,7 @@ helm upgrade --install chaos-mesh chaos-mesh/chaos-mesh \
   --set dashboard.securityMode=false \
   --set dashboard.service.type=ClusterIP \
   --set controllerManager.enableFilterNamespace=true \
+  --set controllerManager.priorityClassName=platform-normal \
   --wait --timeout 180s
 
 echo "Chaos Mesh installed. Dashboard:"

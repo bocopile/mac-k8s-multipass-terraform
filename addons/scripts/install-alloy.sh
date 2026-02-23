@@ -387,6 +387,7 @@ OPENSEARCH_BLOCK
     --set alloy.resources.limits.cpu=200m \
     --set rbac.create=true \
     --set serviceAccount.create=true \
+    --set controller.priorityClassName=platform-normal \
     --wait --timeout 180s
 
   rm -f "${ALLOY_CONFIG_FILE}"
