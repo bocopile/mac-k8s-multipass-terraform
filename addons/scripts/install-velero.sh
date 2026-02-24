@@ -92,13 +92,22 @@ aws_secret_access_key=${MINIO_ROOT_PASSWORD}
     --wait --timeout 180s
 
   log_info "Velero installed on ${CLUSTER} (backup prefix: ${CLUSTER}/)"
+
+  # Backup Schedule 생성 (매일 02:00 UTC)
+  log_info "Creating daily backup schedule on ${CLUSTER}..."
+  velero schedule create "daily-${CLUSTER}" \
+    --schedule='0 2 * * *' \
+    --ttl 168h \
+    --kubeconfig "${KUBECONFIG_MULTI}" \
+    --kubecontext "kubernetes-admin@${CLUSTER}" 2>/dev/null || \
+  log_warn "Schedule 'daily-${CLUSTER}' already exists, skipping."
 done
 
 echo ""
 echo "=== Velero installation complete on all clusters ==="
 echo ""
-echo "백업 명령어 예시:"
-echo "  velero backup create daily-backup --kubeconfig ~/kubeconfig-multi --kubecontext kubernetes-admin@mgmt"
+echo "백업 Schedule 확인:"
+echo "  velero schedule get --kubeconfig ~/kubeconfig-multi --kubecontext kubernetes-admin@mgmt"
 echo ""
-echo "스케줄 백업 생성:"
-echo "  velero schedule create daily --schedule='0 2 * * *' --kubeconfig ~/kubeconfig-multi --kubecontext kubernetes-admin@mgmt"
+echo "수동 백업 실행:"
+echo "  velero backup create manual-backup --kubeconfig ~/kubeconfig-multi --kubecontext kubernetes-admin@mgmt"
