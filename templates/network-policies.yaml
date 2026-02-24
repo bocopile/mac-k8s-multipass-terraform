@@ -10,12 +10,12 @@
 # =============================================================================
 
 ---
-# Default Deny All Ingress/Egress (Template - 각 네임스페이스에 적용)
+# Default Deny All Ingress/Egress (각 네임스페이스에 반복 적용)
+# namespace 필드 없음 → kubectl apply -n <NS> 플래그로 대상 네임스페이스 지정
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny-all
-  namespace: NAMESPACE_PLACEHOLDER
 spec:
   podSelector: {}
   policyTypes:
@@ -23,12 +23,11 @@ spec:
     - Egress
 
 ---
-# Allow DNS (Template - 각 네임스페이스에 적용)
+# Allow DNS (각 네임스페이스에 반복 적용)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-dns
-  namespace: NAMESPACE_PLACEHOLDER
 spec:
   podSelector: {}
   policyTypes:
@@ -46,12 +45,11 @@ spec:
           port: 53
 
 ---
-# Allow Kubernetes API Access (Template)
+# Allow Kubernetes API Access (각 네임스페이스에 반복 적용)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-kubernetes-api
-  namespace: NAMESPACE_PLACEHOLDER
 spec:
   podSelector: {}
   policyTypes:

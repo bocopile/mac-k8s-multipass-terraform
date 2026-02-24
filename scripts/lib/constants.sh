@@ -20,7 +20,7 @@ readonly NAMESPACE_ISTIO="istio-system"
 # =============================================================================
 readonly TIMEOUT_DEPLOYMENT=180
 readonly TIMEOUT_STATEFULSET=180
-readonly TIMEOUT_LB_IP=30
+readonly TIMEOUT_LB_IP=120
 readonly TIMEOUT_POD_READY=120
 readonly TIMEOUT_HELM_INSTALL=300
 

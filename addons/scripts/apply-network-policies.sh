@@ -19,7 +19,10 @@ if [[ ! -f "${NETWORK_POLICIES_TEMPLATE}" ]]; then
   error_exit "network-policies.yaml template not found"
 fi
 
-log_info "Applying NetworkPolicies to all clusters..."
+# NOTE: 이 스크립트는 플랫폼 네임스페이스(monitoring/observability/backup/vault/security/argocd)에만
+# NetworkPolicy를 적용합니다. 워크로드 네임스페이스(default 등)는 애플리케이션 배포 시
+# 별도로 적용해야 합니다. (데모 환경 범위 제한 — ARCHITECTURE.md §7.4 참조)
+log_info "Applying NetworkPolicies to platform namespaces..."
 
 CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
 
