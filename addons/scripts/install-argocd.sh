@@ -102,14 +102,10 @@ echo "  Password: $(get_kubectl_cmd mgmt) -n ${NAMESPACE_ARGOCD} get secret argo
 # =============================================================================
 if ! command -v argocd &>/dev/null; then
   echo ""
-  echo "NOTE: ArgoCD CLI not found. Installing..."
-  CLI_ARCH="amd64"
-  if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
-    CLI_ARCH="arm64"
-  fi
-  curl -sSL -o /usr/local/bin/argocd \
-    "https://github.com/argoproj/argo-cd/releases/latest/download/argocd-darwin-${CLI_ARCH}" 2>/dev/null || true
-  chmod +x /usr/local/bin/argocd 2>/dev/null || true
+  echo "NOTE: ArgoCD CLI not found. Skipping auto-install."
+  echo "  macOS: brew install argocd"
+  echo "  Linux: curl -sSL -o ~/.local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64"
+  echo "  설치 후 클러스터 등록은 수동으로 진행하세요 (아래 명령어 참조)"
 fi
 
 # =============================================================================

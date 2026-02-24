@@ -112,21 +112,8 @@ resource "null_resource" "merge_kubeconfigs" {
   }
 }
 
-# =============================================================================
-# ADDON INSTALLATION (DEPRECATED)
-# =============================================================================
-# NOTE: Addon installation has been moved to a separate step for better
-#       modularity and easier troubleshooting. After infrastructure is ready,
-#       run: bash addons/install.sh --all
-#
-# Reason: Script path mismatch - scripts are in /addons/scripts/ not /scripts/
-#         Separating infrastructure from addons allows selective installation
-#
-# To re-enable Terraform-managed addons, uncomment blocks below and update
-# script paths from ${path.module}/scripts/ to ${path.module}/addons/scripts/
-# =============================================================================
-
-/*
+/*  ARCHIVED — Terraform-managed addon installation (moved to addons/install.sh)
+    Run after infrastructure: bash addons/install.sh --all
 # =============================================================================
 # Cilium CNI 설치 (3개 클러스터)
 # =============================================================================
@@ -615,30 +602,6 @@ resource "null_resource" "install_holmesgpt" {
   }
 }
 */
-
-# =============================================================================
-# END OF DEPRECATED ADDON INSTALLATION
-# =============================================================================
-
-# Botkube - Slack 통합 (선택적, Slack 토큰 필요)
-# NOTE: 수동 실행 권장 (Slack 토큰 대화형 입력)
-# 자동 설치를 원하면 아래 주석 해제 및 Slack 토큰 환경변수 설정
-# resource "null_resource" "install_botkube" {
-#   depends_on = [
-#     null_resource.install_prometheus_stack,
-#     local_file.cluster_config,
-#   ]
-#
-#   triggers = {
-#     prometheus_id   = null_resource.install_prometheus_stack.id
-#     botkube_version = var.botkube_version
-#     clusters_hash   = md5(local.clusters_json)
-#   }
-#
-#   provisioner "local-exec" {
-#     command = "bash ${path.module}/addons/scripts/install-botkube.sh"
-#   }
-# }
 
 # =============================================================================
 # Cleanup fallback (개별 VM destroy provisioner 실패 시 안전망)

@@ -151,14 +151,110 @@ verify_addon() {
     fi
 }
 
+# 아키텍처 불변 조건(Contract) 검증
+# C2: Grafana Alloy WAL 버퍼, C4: Kyverno app only, NetworkPolicy, PriorityClass
+verify_contracts() {
+    local passed=0
+    local failed=0
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Architecture Contract Verification"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # C2: Grafana Alloy가 전 클러스터에 배포되어 있는지 (메트릭/로그 수집 보장)
+    echo ""
+    echo "  [C2] Grafana Alloy DaemonSet (전 클러스터 수집 에이전트)"
+    for ctx in mgmt app1 app2; do
+        local kctx="kubernetes-admin@${ctx}"
+        if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kctx" \
+            -n observability get daemonset alloy &>/dev/null 2>&1; then
+            echo "    ✅ ${ctx}: alloy DaemonSet 존재"
+            ((passed++)) || true
+        else
+            echo "    ❌ ${ctx}: alloy DaemonSet 없음 (메트릭/로그 수집 불가)"
+            ((failed++)) || true
+        fi
+    done
+
+    # C4: Kyverno가 mgmt에는 없고 app 클러스터에만 있는지
+    echo ""
+    echo "  [C4] Kyverno app 클러스터 전용 (mgmt 제외)"
+    if ! kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
+        -n security get deployment kyverno-admission-controller &>/dev/null 2>&1; then
+        echo "    ✅ mgmt: Kyverno 없음 (정상)"
+        ((passed++)) || true
+    else
+        echo "    ❌ mgmt: Kyverno가 mgmt에 설치됨 (ADR-003 위반)"
+        ((failed++)) || true
+    fi
+    for ctx in app1 app2; do
+        local kctx="kubernetes-admin@${ctx}"
+        if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kctx" \
+            -n security get deployment kyverno-admission-controller &>/dev/null 2>&1; then
+            echo "    ✅ ${ctx}: Kyverno 존재"
+            ((passed++)) || true
+        else
+            echo "    ⚠️  ${ctx}: Kyverno 없음"
+            ((failed++)) || true
+        fi
+    done
+
+    # PriorityClass 검증: platform-critical, platform-normal 존재 여부
+    echo ""
+    echo "  [인프라] PriorityClass (platform-critical / platform-normal)"
+    for ctx in mgmt app1 app2; do
+        local kctx="kubernetes-admin@${ctx}"
+        local pc_ok=true
+        for pc in platform-critical platform-normal; do
+            if ! kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kctx" \
+                get priorityclass "$pc" &>/dev/null 2>&1; then
+                echo "    ❌ ${ctx}: PriorityClass '${pc}' 없음"
+                pc_ok=false
+                ((failed++)) || true
+            fi
+        done
+        if $pc_ok; then
+            echo "    ✅ ${ctx}: platform-critical + platform-normal 존재"
+            ((passed++)) || true
+        fi
+    done
+
+    # NetworkPolicy 검증: 플랫폼 네임스페이스에 default-deny-all 적용 여부
+    echo ""
+    echo "  [보안] NetworkPolicy default-deny-all (플랫폼 네임스페이스)"
+    for ctx in mgmt app1; do
+        local kctx="kubernetes-admin@${ctx}"
+        for ns in monitoring security; do
+            if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kctx" \
+                -n "$ns" get networkpolicy default-deny-all &>/dev/null 2>&1; then
+                echo "    ✅ ${ctx}/${ns}: default-deny-all 존재"
+                ((passed++)) || true
+            else
+                echo "    ❌ ${ctx}/${ns}: default-deny-all 없음 (Zero-Trust 미적용)"
+                ((failed++)) || true
+            fi
+        done
+    done
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Contract Summary: passed=$passed, failed=$failed"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    return $failed
+}
+
 main() {
     local addons_to_verify=()
+
+    local run_contracts=false
 
     # 인자 파싱
     while [[ $# -gt 0 ]]; do
         case $1 in
             --all)
                 addons_to_verify=("${!ADDON_CHECK[@]}")
+                run_contracts=true
                 shift
                 ;;
             --summary)
@@ -225,8 +321,14 @@ main() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
-    if [[ $failed -gt 0 ]]; then
-        echo "❌ Some addons are not ready"
+    # --all 시 아키텍처 Contract 검증 추가 실행
+    local contract_failed=0
+    if $run_contracts; then
+        verify_contracts || contract_failed=$?
+    fi
+
+    if [[ $failed -gt 0 || $contract_failed -gt 0 ]]; then
+        echo "❌ Some addons are not ready or contracts are violated"
         exit 1
     else
         echo "✅ All verified addons are running"
