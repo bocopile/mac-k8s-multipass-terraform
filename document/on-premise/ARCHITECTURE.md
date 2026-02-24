@@ -66,7 +66,7 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | **Service Mesh** | Istio v1.29.0 + Cilium CNI 통합 |
 | **GitOps** | ArgoCD (mgmt 클러스터) |
 | **시크릿/PKI** | Vault + External Secrets Operator + cert-manager v1.19.3 |
-| **관찰성** | Prometheus + Thanos + Loki + Promtail + Tempo + Grafana + OpenTelemetry + Hubble + Kiali |
+| **관찰성** | Prometheus + Thanos + Loki + Grafana Alloy + Tempo + OpenSearch + Grafana + Hubble + Kiali |
 | **보안** | PSA + Kyverno + Falco + Tetragon + Trivy + Istio AuthZ |
 | **AIOps/최적화** | K8sGPT + HolmesGPT (Robusta) + OpenCost + Goldilocks/VPA |
 | **ChatOps** | Botkube (Slack 통합, 선택적) |
@@ -144,8 +144,8 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 |-----|------|
 | **상태** | Accepted |
 | **컨텍스트** | 각 클러스터에 전체 Prometheus 스택 배치 시 I/O 병목 |
-| **결정** | app 클러스터는 Prometheus Agent Mode + Promtail, mgmt는 Full Stack (Prometheus + Grafana + Alertmanager + Thanos + Loki) |
-| **결과** | 로컬 디스크 사용량 최소화, mgmt 장애 시에도 로컬 수집 지속 |
+| **결정** | app 클러스터는 Grafana Alloy (메트릭 수집 → Thanos remote_write, 로그 수집 → OpenSearch), mgmt는 Full Stack (Prometheus + Grafana + Alertmanager + Thanos + Loki + Alloy) |
+| **결과** | 로컬 디스크 사용량 최소화, mgmt 장애 시에도 Alloy WAL 버퍼링으로 로컬 수집 지속 |
 
 ### ADR-007: Istio Service Mesh 도입
 
@@ -157,7 +157,7 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | **근거** | - Cilium: 고성능 네트워킹 + eBPF 보안<br/>- Istio: mTLS, Traffic Management, 세밀한 인가 정책<br/>- Gateway API 기반 통합으로 vendor lock-in 회피 |
 | **트레이드오프** | 복잡도 증가, 리소스 추가 소비(~1GB RAM), 학습 곡선 |
 | **완화책** | - Istio는 mgmt + app1에만 배포 (app2는 선택적)<br/>- Sidecar injection을 네임스페이스 레이블로 제어 |
-| **결과** | Istio 1.29.0 배포 완료 (K8s 1.35 호환), Tempo + OTel Collector + Kiali 관찰성 스택 통합 |
+| **결과** | Istio 1.29.0 배포 완료 (K8s 1.35 호환), Tempo + Grafana Alloy + Kiali 관찰성 스택 통합 |
 
 ### ADR-008: OpenTofu 채택 (Terraform 대체)
 
@@ -197,11 +197,11 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | **컨텍스트** | 관찰성 스택의 네임스페이스가 일관성 없이 분산 (Prometheus-monitoring, Loki-loki, Thanos-thanos 등) |
 | **결정** | 네임스페이스를 용도별로 통합: **monitoring** (메트릭 수집/시각화) vs **observability** (장기 보관/분석) |
 | **근거** | - **명확한 책임 분리**: 메트릭 수집(Prometheus, Grafana) vs 장기 보관(Thanos, Loki, Tempo)<br/>- **장애 도메인 격리**: monitoring 장애 시에도 observability 데이터 보존<br/>- **리소스 관리**: 네임스페이스별 ResourceQuota 적용 용이<br/>- **RBAC 간소화**: 네임스페이스 기반 접근 제어 |
-| **구현** | - **monitoring**: Prometheus Stack, Grafana, AlertManager<br/>- **observability**: Thanos, Loki, Tempo, OpenTelemetry Collector<br/>- **security**: Kyverno, Falco, Tetragon<br/>- **backup**: MinIO, Velero |
+| **구현** | - **monitoring**: Prometheus Stack, Grafana, AlertManager<br/>- **observability**: Thanos, Loki, Tempo, OpenSearch, Grafana Alloy<br/>- **security**: Kyverno, Falco, Tetragon<br/>- **backup**: MinIO, Velero |
 | **트레이드오프** | 기존 스크립트 네임스페이스 참조 수정 필요 |
 | **완화책** | - verify.sh 업데이트로 자동 검증<br/>- 각 install 스크립트 네임스페이스 참조 수정<br/>- Kyverno 정책 제외 목록에 observability/security/backup 추가 |
 | **결과** | - 일관된 네임스페이스 구조<br/>- 명확한 서비스 경계<br/>- 장애 격리 향상 |
-| **영향받는 컴포넌트** | install-tempo.sh, install-loki.sh, install-thanos.sh, install-otel-collector.sh, verify.sh, install-kyverno.sh |
+| **영향받는 컴포넌트** | install-tempo.sh, install-loki.sh, install-thanos.sh, install-alloy.sh, install-opensearch.sh, verify.sh, install-kyverno.sh |
 
 ### ADR-011: *.bocopile.io 도메인 통합 접근
 
@@ -382,7 +382,7 @@ macOS(Apple Silicon) 환경에서 **Terraform과 Shell Script**를 사용하여 
 | # | 불변 조건 | 근거 ADR |
 |---|----------|----------|
 | **C1** | mgmt 클러스터 장애 시에도 app 클러스터 워크로드는 **독립 실행** 지속 | ADR-001 |
-| **C2** | app 클러스터의 Prometheus Agent는 WAL 로컬 버퍼링 유지 (**2시간** retention) | ADR-006 |
+| **C2** | app 클러스터의 Grafana Alloy는 WAL 로컬 버퍼링 유지 (디스크 용량만큼) | ADR-006 |
 | **C3** | External Secrets는 **refreshInterval 1h** 캐시로 Vault 장애 시에도 동작 | ADR-001 |
 | **C4** | Kyverno는 **app 클러스터에만** enforce 모드로 배치 (mgmt 제외) | ADR-003 |
 | **C5** | PKI 부트스트랩은 **2-Phase** (Self-signed -> Vault Issuer) 순서 준수 | ADR-004 |
@@ -459,8 +459,8 @@ flowchart TB
 | 클러스터 | 역할 | 컴포넌트 |
 |---------|------|---------|
 | **mgmt** | 플랫폼 서비스 | Vault, Prometheus Full, Thanos, Loki, Grafana, Tempo, Alertmanager, ArgoCD, Velero, MinIO, Trivy, K8sGPT, HolmesGPT (Robusta), LocalAI, Botkube (선택), OpenCost, VPA+Goldilocks, Chaos Mesh, Istio (Istiod + Ingress Gateway), Kiali |
-| **app1** | 워크로드 A | 애플리케이션, Prometheus Agent, Promtail, OpenTelemetry Collector, Kyverno, Falco, Istio Sidecar |
-| **app2** | 워크로드 B | 애플리케이션, Prometheus Agent, Promtail, OpenTelemetry Collector, Kyverno, Falco |
+| **app1** | 워크로드 A | 애플리케이션, Grafana Alloy (메트릭+로그 수집), Kyverno, Falco, Istio Sidecar |
+| **app2** | 워크로드 B | 애플리케이션, Grafana Alloy (메트릭+로그 수집), Kyverno, Falco |
 | **전체** | 공통 인프라 | Cilium, Tetragon (DaemonSet), MetalLB, cert-manager, ESO |
 
 ### 4.3 클러스터 스펙
@@ -831,8 +831,9 @@ flowchart TB
 | 항목 | 설명 |
 |-----|------|
 | **모델** | Zero Trust - 기본 deny all, 명시적 allow |
-| **배치 범위** | 전체 클러스터 |
+| **배치 범위** | 플랫폼 네임스페이스 (monitoring, observability, security, backup, vault, argocd) |
 | **정책 수** | 11개 (default-deny-all + 10개 서비스별 정책) |
+| **주의** | 워크로드 NS (default 등)는 애플리케이션 배포 시 별도 적용 필요 (데모 환경 범위 제한) |
 | **구현** | `templates/network-policies.yaml` |
 | **적용** | `bash addons/scripts/apply-network-policies.sh` |
 
@@ -964,9 +965,11 @@ flowchart LR
 | 영역 | 도구 | 배치 | 구현 |
 |-----|------|------|------|
 | **Metrics (mgmt)** | Prometheus Full + Thanos | mgmt | `addons/scripts/install-prometheus-stack.sh`, `addons/scripts/install-thanos.sh` |
-| **Metrics (app)** | Prometheus Agent Mode | app1/app2 | `addons/scripts/install-prometheus-agent.sh` |
-| **Logs (mgmt)** | Loki (SingleBinary) | mgmt | `addons/scripts/install-loki.sh` |
-| **Logs (app)** | Promtail | 전 클러스터 | `addons/scripts/install-loki.sh` |
+| **Metrics (app)** | Grafana Alloy (→ Thanos remote_write) | app1/app2 | `addons/scripts/install-alloy.sh` |
+| **Logs (mgmt)** | Loki (SingleBinary) + Grafana Alloy | mgmt | `addons/scripts/install-loki.sh`, `addons/scripts/install-alloy.sh` |
+| **Logs (app)** | Grafana Alloy (→ OpenSearch) | app1/app2 | `addons/scripts/install-alloy.sh` |
+| **Log Search** | OpenSearch + Dashboards | mgmt | `addons/scripts/install-opensearch.sh` |
+| **Tracing** | Tempo | mgmt | `addons/scripts/install-tempo.sh` |
 | **Dashboard** | Grafana | mgmt | `addons/scripts/install-prometheus-stack.sh` |
 | **Alerting** | Alertmanager | mgmt | `addons/scripts/install-prometheus-stack.sh` |
 | **Network** | Hubble (UI + Relay) | 전 클러스터 | `addons/scripts/install-cilium.sh` |
@@ -979,8 +982,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph AppClusters["app1/app2 클러스터"]
-        PromAgent["Prometheus Agent<br/>(메트릭 수집, WAL 2h)"]
-        Promtail["Promtail<br/>(로그 수집)"]
+        Alloy["Grafana Alloy<br/>(메트릭+로그 수집, WAL 버퍼)"]
     end
 
     subgraph MgmtCluster["mgmt 클러스터"]
@@ -988,12 +990,15 @@ flowchart LR
         Thanos["Thanos Receive<br/>(장기 저장)"]
         ThanosQuery["Thanos Query<br/>(통합 쿼리)"]
         Loki["Loki<br/>(로그 저장, 7d)"]
+        OpenSearch["OpenSearch<br/>(감사·보안 로그)"]
         Grafana["Grafana<br/>(시각화)"]
         Alertmanager["Alertmanager<br/>(알림)"]
+        AlloyMgmt["Grafana Alloy<br/>(mgmt 수집)"]
     end
 
-    PromAgent -->|"remote_write"| Thanos
-    Promtail -->|"push"| Loki
+    Alloy -->|"remote_write"| Thanos
+    Alloy -->|"logs push"| OpenSearch
+    AlloyMgmt -->|"logs push"| Loki
     PromFull --> ThanosQuery
     Thanos --> ThanosQuery
     ThanosQuery --> Grafana
@@ -1005,8 +1010,7 @@ flowchart LR
 
 | 컴포넌트 | 동작 | 버퍼 시간 |
 |---------|------|----------|
-| **Prometheus Agent** | WAL 로컬 버퍼링, 복구 후 재전송 | 2시간 (C2) |
-| **Promtail** | positions 파일 + 버퍼 | 디스크 용량만큼 |
+| **Grafana Alloy** | WAL 로컬 버퍼링, 복구 후 재전송 (메트릭+로그) | 디스크 용량만큼 |
 | **External Secrets** | 캐시된 시크릿 유지 | refreshInterval 1h (C3) |
 
 ### 8.4 AI 운영 도구 (AIOps)
@@ -1362,9 +1366,9 @@ flowchart TB
 | node-exporter + kube-state-metrics | 모니터링 | 80 MB |
 | Thanos (Receive + Query + Compactor) | 모니터링 | 512 MB |
 | Loki (SingleBinary) | 로깅 | 400 MB |
-| Promtail | 로깅 | 100 MB |
+| Grafana Alloy (mgmt) | 수집 에이전트 | 256 MB |
+| OpenSearch + Dashboards | 로그 검색 | 512 MB |
 | Tempo | 트레이싱 | 256 MB |
-| OpenTelemetry Collector | 트레이싱 | 256 MB |
 | Istio (Istiod + Ingress Gateway) | Service Mesh | 650 MB |
 | Kiali | Service Mesh 관찰성 | 128 MB |
 | Trivy Operator | 보안 | 200 MB |
@@ -1379,9 +1383,9 @@ flowchart TB
 | ESO | 시크릿 | 100 MB |
 | MinIO | 스토리지 | 256 MB |
 | Velero + node-agent | 백업 | 256 MB |
-| **소계 (AI 도구 포함)** | | **~9.0 GB** |
-| **소계 (AI 도구 제외)** | | **~5.9 GB** |
-| **여유 (현재 10GB 기준)** | | **✅ 충분 (+1.0 GB)** |
+| **소계 (AI 도구 포함)** | | **~9.4 GB** |
+| **소계 (AI 도구 제외)** | | **~6.3 GB** |
+| **여유 (현재 10GB 기준, AI 제외)** | | **✅ 충분 (+3.7 GB)** |
 
 > **현재 설정**: mgmt-worker-0 = 10GB (locals.tf, ADR-009)
 
@@ -1407,8 +1411,7 @@ flowchart TB
 | Cilium agent + operator + Hubble | 300 MB |
 | Tetragon agent | 100 MB |
 | MetalLB controller + speaker | 80 MB |
-| Prometheus Agent | 200 MB |
-| Promtail | 100 MB |
+| Grafana Alloy | 256 MB |
 | Kyverno | 200 MB |
 | Falco | 200 MB |
 | cert-manager | 100 MB |
@@ -1525,7 +1528,8 @@ bash addons/install.sh vault argocd prometheus-stack
 | - | `scripts/cluster-init.sh` | 각 CP | VM 생성 후 (Terraform) |
 | - | `scripts/cluster-join.sh` | 각 Worker | init 후 (Terraform) |
 | - | `scripts/merge-kubeconfigs.sh` | 호스트 | 전체 join 후 (Terraform) |
-| 1 | `install-cilium.sh` | 전 클러스터 | kubeconfig 병합 후 |
+| 0 | `install-priority-classes.sh` | 전 클러스터 | kubeconfig 병합 후 |
+| 1 | `install-cilium.sh` | 전 클러스터 | priority-classes 후 |
 | 2 | `install-tetragon.sh` | 전 클러스터 | Cilium 후 |
 | 3 | `install-metallb.sh` | 전 클러스터 | Cilium 후 |
 | 4 | `install-gateway-api.sh` | 전 클러스터 | Cilium 후 |
@@ -1539,11 +1543,11 @@ bash addons/install.sh vault argocd prometheus-stack
 | 12 | `install-k8sgpt.sh` | mgmt | Platform Addons 후 |
 | 13 | `install-thanos.sh` | mgmt | MinIO 후 |
 | 14 | `install-prometheus-stack.sh` | mgmt | Thanos 후 |
-| 15 | `install-prometheus-agent.sh` | app만 | Thanos 후 |
-| 16 | `install-loki.sh` | mgmt + app | Prometheus Stack 후 |
-| 17 | `install-tempo.sh` | mgmt | Prometheus Stack 후 |
-| 18 | `install-otel-collector.sh` | 전 클러스터 | Tempo 후 |
-| 19 | `install-istio.sh` | mgmt + app | OTel 후 |
+| 15 | `install-loki.sh` | mgmt | Prometheus Stack 후 |
+| 16 | `install-tempo.sh` | mgmt | Prometheus Stack 후 |
+| 17 | `install-opensearch.sh` | mgmt | Prometheus Stack 후 |
+| 18 | `install-alloy.sh` | 전 클러스터 | OpenSearch + Thanos 후 |
+| 19 | `install-istio.sh` | mgmt + app | Alloy 후 |
 | 20 | `install-kiali.sh` | mgmt + app | Istio 후 |
 | 21 | `install-kyverno.sh` | app만 | Istio 후 |
 | 22 | `install-falco.sh` | app만 | Kyverno 후 |
@@ -1554,7 +1558,7 @@ bash addons/install.sh vault argocd prometheus-stack
 | - | `scripts/verify-clusters.sh` | 검증 | 전체 완료 후 |
 | - | `scripts/delete-all.sh` | 정리 | 수동 실행 |
 
-**총 Addon 수**: 26개 (addons/install.sh INSTALL_ORDER 기준, botkube 수동)
+**총 Addon 수**: 27개 (addons/install.sh INSTALL_ORDER 기준, botkube 수동)
 
 ---
 
