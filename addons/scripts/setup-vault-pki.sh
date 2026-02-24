@@ -99,7 +99,7 @@ echo "[3/5] Creating PKI role for Istio Gateway..."
 
 # 사용할 도메인 설정 (여기서는 예시로 *.local, *.example.com 사용)
 # 실제 사용할 도메인으로 변경 필요
-ALLOWED_DOMAINS="*.local,*.example.com,*.cluster.local,localhost"
+ALLOWED_DOMAINS="*.local,*.example.com,*.cluster.local,*.bocopile.io,localhost"
 
 $(get_kubectl_cmd mgmt) -n vault exec -i vault-0 -- sh -c '
   export VAULT_TOKEN="'"${VAULT_ROOT_TOKEN}"'"
