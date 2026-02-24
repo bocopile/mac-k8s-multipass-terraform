@@ -1,7 +1,17 @@
 # =============================================================================
+# generated/ 디렉토리 사전 생성 (local_file 리소스가 디렉토리를 자동 생성하지 않음)
+# =============================================================================
+resource "null_resource" "ensure_generated_dir" {
+  provisioner "local-exec" {
+    command = "mkdir -p ${path.module}/generated"
+  }
+}
+
+# =============================================================================
 # 클러스터 설정 JSON (스크립트 DRY 소스)
 # =============================================================================
 resource "local_file" "cluster_config" {
+  depends_on      = [null_resource.ensure_generated_dir]
   filename        = "${path.module}/generated/clusters.json"
   content         = local.clusters_json
   file_permission = "0644"
@@ -12,6 +22,8 @@ resource "local_file" "cluster_config" {
 # =============================================================================
 resource "local_file" "cloud_init" {
   for_each = local.all_nodes
+
+  depends_on = [null_resource.ensure_generated_dir]
 
   filename = "${path.module}/generated/cloud-init-${each.key}.yaml"
   content = templatefile("${path.module}/templates/cloud-init-k8s.yaml.tpl", {
