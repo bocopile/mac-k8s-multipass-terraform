@@ -80,7 +80,7 @@ EOF
   echo "Applying Kyverno policies on ${CLUSTER}..."
 
   # 1. 이미지 레지스트리 제한 (Harbor만 허용)
-  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<'EOF'
+  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -111,17 +111,12 @@ spec:
                 - backup
                 - cert-manager
                 - external-secrets
-                - observability
-                - security
-                - backup
-                - cert-manager
-                - external-secrets
       validate:
-        message: "이미지는 Harbor 레지스트리(localhost:8443) 또는 공식 레지스트리만 허용됩니다."
+        message: "이미지는 Harbor 레지스트리(${HARBOR_REGISTRY}) 또는 공식 레지스트리만 허용됩니다."
         pattern:
           spec:
             containers:
-              - image: "localhost:8443/* | registry.k8s.io/* | docker.io/library/* | quay.io/*"
+              - image: "${HARBOR_REGISTRY}/* | registry.k8s.io/* | docker.io/library/* | quay.io/*"
 EOF
 
   # 2. 리소스 제한 필수

@@ -50,6 +50,8 @@ validate_prerequisites() {
 
 # Setup common variables
 setup_common_vars() {
+  validate_prerequisites
+
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   GENERATED_DIR="${SCRIPT_DIR}/../generated"
   KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
@@ -57,18 +59,6 @@ setup_common_vars() {
 
   require_file "${KUBECONFIG_MULTI}"
   require_file "${CLUSTERS_JSON}"
-}
-
-# Get kubectl context helper
-kubectl_ctx() {
-  local cluster="$1"
-  echo "--kubeconfig ${KUBECONFIG_MULTI} --context kubernetes-admin@${cluster}"
-}
-
-# Get helm context helper
-helm_ctx() {
-  local cluster="$1"
-  echo "--kubeconfig ${KUBECONFIG_MULTI} --kube-context kubernetes-admin@${cluster}"
 }
 
 # Wait for deployment to be ready

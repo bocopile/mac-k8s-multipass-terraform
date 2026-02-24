@@ -48,6 +48,11 @@ readonly HELM_REPO_EXTERNAL_SECRETS="https://charts.external-secrets.io"
 readonly HELM_REPO_PROMETHEUS_COMMUNITY="${HELM_REPO_PROMETHEUS}"
 
 # =============================================================================
+# Registry Constants
+# =============================================================================
+readonly HARBOR_REGISTRY="localhost:8443"
+
+# =============================================================================
 # Domain Constants
 # =============================================================================
 readonly BASE_DOMAIN="bocopile.io"
