@@ -25,7 +25,25 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# =============================================================================
+# Infra VM IP 조회 (Harbor, Nexus) - generated/ 파일에서 읽기
+# =============================================================================
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+GENERATED_DIR="${ROOT_DIR}/generated"
+
+HARBOR_IP=""
+NEXUS_IP=""
+
+if [[ -f "${GENERATED_DIR}/harbor-ip" ]]; then
+  HARBOR_IP=$(cat "${GENERATED_DIR}/harbor-ip")
+fi
+if [[ -f "${GENERATED_DIR}/nexus-ip" ]]; then
+  NEXUS_IP=$(cat "${GENERATED_DIR}/nexus-ip")
+fi
+
+# =============================================================================
 # LoadBalancer IP 조회
+# =============================================================================
 echo "Querying LoadBalancer IPs from mgmt cluster..."
 echo ""
 
@@ -61,6 +79,10 @@ echo "  Thanos:     ${THANOS_IP:-NOT FOUND}"
 echo "  Loki:       ${LOKI_IP:-NOT FOUND}"
 echo "  Gateway:    ${GATEWAY_IP:-NOT FOUND}"
 echo "  OpenSearch: ${OPENSEARCH_IP:-NOT FOUND}"
+echo ""
+echo "Found Infra VM IPs (from generated/):"
+echo "  Harbor:     ${HARBOR_IP:-NOT FOUND (run: cd azure-infra && tofu apply)}"
+echo "  Nexus:      ${NEXUS_IP:-NOT FOUND (run: cd azure-infra && tofu apply)}"
 echo ""
 
 # /etc/hosts 백업
@@ -124,6 +146,18 @@ if [[ -n "${OPENSEARCH_IP}" ]]; then
   echo "${OPENSEARCH_IP}    opensearch-dashboards.local" >> "${HOSTS_FILE}"
 fi
 
+if [[ -n "${HARBOR_IP}" ]]; then
+  echo "" >> "${HOSTS_FILE}"
+  echo "# Harbor Container Registry (Infra VM)" >> "${HOSTS_FILE}"
+  echo "${HARBOR_IP}    ${DOMAIN_HARBOR}" >> "${HOSTS_FILE}"
+fi
+
+if [[ -n "${NEXUS_IP}" ]]; then
+  echo "" >> "${HOSTS_FILE}"
+  echo "# Nexus Repository Manager (Infra VM)" >> "${HOSTS_FILE}"
+  echo "${NEXUS_IP}    ${DOMAIN_NEXUS}" >> "${HOSTS_FILE}"
+fi
+
 echo "# ========================================" >> "${HOSTS_FILE}"
 echo "" >> "${HOSTS_FILE}"
 
@@ -143,8 +177,10 @@ echo "You can now access services:"
 [[ -n "${VAULT_IP}" ]] && echo "  Vault:         http://vault.local:8200"
 [[ -n "${THANOS_IP}" ]] && echo "  Thanos:        http://thanos.local:19291"
 [[ -n "${LOKI_IP}" ]] && echo "  Loki:          http://loki.local:3100"
-[[ -n "${GATEWAY_IP}" ]] && echo "  Gateway:          http://gateway.local"
-[[ -n "${OPENSEARCH_IP}" ]] && echo "  OpenSearch:       http://opensearch-dashboards.local:5601"
+[[ -n "${GATEWAY_IP}" ]] && echo "  Gateway:       http://gateway.local"
+[[ -n "${OPENSEARCH_IP}" ]] && echo "  OpenSearch:    http://opensearch-dashboards.local:5601"
+[[ -n "${HARBOR_IP}" ]] && echo "  Harbor:        http://${DOMAIN_HARBOR}"
+[[ -n "${NEXUS_IP}" ]] && echo "  Nexus:         http://${DOMAIN_NEXUS}:8081"
 echo ""
 echo "Backup saved to: ${BACKUP_FILE}"
 echo ""
