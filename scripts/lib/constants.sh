@@ -48,9 +48,14 @@ readonly HELM_REPO_EXTERNAL_SECRETS="https://charts.external-secrets.io"
 readonly HELM_REPO_PROMETHEUS_COMMUNITY="${HELM_REPO_PROMETHEUS}"
 
 # =============================================================================
-# Registry Constants
+# Registry & Artifact Repository Constants
+# Harbor: 컨테이너 이미지 레지스트리 (harbor-vm, HTTP 포트 80)
+# Nexus:  라이브러리 저장소 Maven/npm/raw (nexus-vm, HTTP 포트 8081)
 # =============================================================================
-readonly HARBOR_REGISTRY="localhost:8443"
+readonly HARBOR_REGISTRY="harbor.bocopile.io"
+readonly NEXUS_URL="nexus.bocopile.io:8081"
+readonly NEXUS_MAVEN_URL="http://${NEXUS_URL}/repository/maven-public"
+readonly NEXUS_NPM_URL="http://${NEXUS_URL}/repository/npm-proxy"
 
 # =============================================================================
 # Domain Constants
@@ -66,6 +71,8 @@ readonly DOMAIN_TEMPO="tempo.${BASE_DOMAIN}"
 readonly DOMAIN_KIALI="kiali.${BASE_DOMAIN}"
 readonly DOMAIN_JAEGER="jaeger.${BASE_DOMAIN}"
 readonly DOMAIN_MINIO="minio.${BASE_DOMAIN}"
+readonly DOMAIN_HARBOR="harbor.${BASE_DOMAIN}"
+readonly DOMAIN_NEXUS="nexus.${BASE_DOMAIN}"
 
 # =============================================================================
 # Resource Defaults (for demo environment)
@@ -118,6 +125,13 @@ get_platform_namespaces() {
 get_mgmt_namespaces() {
   echo "${NAMESPACE_OBSERVABILITY} ${NAMESPACE_BACKUP} ${NAMESPACE_VAULT}"
 }
+
+# =============================================================================
+# Default Tool Versions
+# Referenced by: addons/scripts/install-cilium.sh, addons/scripts/install-metallb.sh
+# =============================================================================
+readonly CILIUM_VERSION_DEFAULT="1.19.0"
+readonly METALLB_VERSION_DEFAULT="0.15.3"
 
 # Check if namespace should be privileged
 is_privileged_namespace() {
