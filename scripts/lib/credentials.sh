@@ -83,27 +83,6 @@ get_minio_credentials() {
   echo "MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}"
 }
 
-# Get or generate MySQL credentials
-get_mysql_credentials() {
-  if [[ -f "${CREDENTIALS_FILE}" ]]; then
-    safe_source "${CREDENTIALS_FILE}" || true
-  fi
-
-  if [[ -z "${MYSQL_ROOT_PASSWORD:-}" ]]; then
-    MYSQL_ROOT_PASSWORD=$(generate_password 32)
-    export MYSQL_ROOT_PASSWORD
-
-    # Save to file (secure from creation)
-    ensure_credentials_file
-    {
-      echo "# MySQL Credentials (auto-generated)"
-      echo "MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}"
-    } >> "${CREDENTIALS_FILE}"
-  fi
-
-  echo "MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}"
-}
-
 # Load all credentials from file
 load_credentials() {
   if [[ -f "${CREDENTIALS_FILE}" ]]; then
