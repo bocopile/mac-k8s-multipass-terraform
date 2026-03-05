@@ -12,7 +12,7 @@ declare -A CATEGORIES
 CATEGORIES[infrastructure]="priority-classes cilium tetragon metallb gateway-api cert-manager clustermesh"
 CATEGORIES[secrets]="vault vault-pki eso"
 CATEGORIES[gitops]="argocd"
-CATEGORIES[observability]="prometheus-stack thanos loki tempo opensearch alloy"
+CATEGORIES[observability]="thanos prometheus-stack loki tempo opensearch alloy"
 CATEGORIES[servicemesh]="istio kiali"
 CATEGORIES[security]="kyverno falco platform-addons"
 CATEGORIES[aiops]="k8sgpt holmesgpt botkube"
@@ -35,7 +35,9 @@ INSTALL_ORDER=(
     "argocd"
     "platform-addons"
     "k8sgpt"
-    "thanos"
+    "minio"          # thanos/loki/tempo가 MinIO 자격증명 필요 → 먼저 설치
+    "velero"         # MinIO 버킷 의존
+    "thanos"         # MinIO remote_write 엔드포인트 의존
     "prometheus-stack"
     "loki"
     "tempo"
@@ -47,8 +49,6 @@ INSTALL_ORDER=(
     "falco"
     "holmesgpt"
     "botkube"
-    "minio"
-    "velero"
 )
 
 # 사용법 출력
@@ -59,12 +59,16 @@ usage() {
 옵션:
     --all               모든 addon 설치 (botkube 제외)
     --category <name>   카테고리별 설치 (secrets, gitops, observability, servicemesh, security, aiops, backup)
+    --yes               확인 프롬프트 없이 즉시 설치 (CI/자동화 환경용)
     --list              설치 가능한 addon 목록 출력
     -h, --help          도움말 출력
 
 예시:
     # 모든 addon 설치
     $(basename "$0") --all
+
+    # CI 환경 (확인 없이)
+    $(basename "$0") --all --yes
 
     # 특정 카테고리 설치
     $(basename "$0") --category observability
@@ -156,6 +160,7 @@ install_addon() {
 # Main
 main() {
     local addons_to_install=()
+    local yes_flag=false
 
     # 인자 파싱
     while [[ $# -gt 0 ]]; do
@@ -185,6 +190,10 @@ main() {
                     addons_to_install+=("$addon")
                 done
                 shift 2
+                ;;
+            --yes)
+                yes_flag=true
+                shift
                 ;;
             --list)
                 list_addons
@@ -235,8 +244,13 @@ main() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
-    read -p "Proceed with installation? [y/N] " -n 1 -r
-    echo
+    if [[ "${yes_flag}" == true ]]; then
+        echo "Proceeding without confirmation (--yes flag set)."
+        REPLY="y"
+    else
+        read -p "Proceed with installation? [y/N] " -n 1 -r
+        echo
+    fi
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "Installation cancelled."
         exit 0
