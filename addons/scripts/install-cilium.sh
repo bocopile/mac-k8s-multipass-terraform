@@ -1,8 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: install-cilium.sh <cilium-version>
-CILIUM_VERSION="${1:?Usage: install-cilium.sh <cilium-version>}"
+# Usage: install-cilium.sh [cilium-version]
+# Version priority: $1 argument > $CILIUM_VERSION env var > default
+CILIUM_VERSION="${1:-${CILIUM_VERSION:-1.19.0}}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

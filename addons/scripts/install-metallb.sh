@@ -1,8 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: install-metallb.sh <metallb-version>
-METALLB_VERSION="${1:?Usage: install-metallb.sh <metallb-version>}"
+# Usage: install-metallb.sh [metallb-version]
+# Version priority: $1 argument > $METALLB_VERSION env var > default
+METALLB_VERSION="${1:-${METALLB_VERSION:-0.15.3}}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
