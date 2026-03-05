@@ -21,7 +21,7 @@
 
 - Terraform IaC + Shell Script로 Multipass 기반 멀티클러스터(3개) 환경을 완전 자동화 구축
 - 가용성 SLO 99%(월 ~7시간 다운타임 허용), RTO 1시간, RPO 24시간 달성
-- 호스트 RAM 26GB + 디스크 240GB 이내에서 6개 VM(CP 3 + Worker 3) 안정 운영
+- 호스트 RAM 28GB + 디스크 240GB 이내에서 6개 VM(CP 3 + Worker 3) 안정 운영
 - Cilium Cluster Mesh(VXLAN 모드)를 통한 3개 클러스터 간 서비스 디스커버리 구성
 - Vault + External Secrets + cert-manager 기반의 시크릿/PKI 관리 체계 확립 (2-Phase 부트스트랩)
 - PSA + Kyverno 2-Layer 보안 모델 + Falco/Tetragon 런타임 보안
@@ -35,7 +35,7 @@
 
 ### Phase 1: 호스트 환경 준비 및 VM 프로비저닝
 - Multipass, Terraform >= 1.11.3, Helm CLI, kubectl, cilium CLI 등 필수 도구 설치
-- Terraform으로 6개 VM 생성 (mgmt-cp 4G, mgmt-worker-0 8G, app1-cp 3G, app1-worker-0 4G, app2-cp 3G, app2-worker-0 4G)
+- Terraform으로 6개 VM 생성 (mgmt-cp 4G, mgmt-worker-0 10G, app1-cp 3G, app1-worker-0 4G, app2-cp 3G, app2-worker-0 4G)
 - cloud-init으로 VM 초기 설정 (containerd, kubeadm/kubelet/kubectl, PSA admission config)
 - **구현**: `locals.tf`, `templates/cloud-init-k8s.yaml.tpl`, `main.tf` (null_resource.vm)
 
@@ -52,25 +52,25 @@
 - Gateway API CRD v1.2.1 설치 + Cilium Gateway 활성화
 - MetalLB L2 모드 설치 (클러스터별 IP 풀)
 - Cilium Cluster Mesh 구성 (mgmt <-> app1 <-> app2 Full Mesh)
-- **구현**: `scripts/install-cilium.sh`, `scripts/install-tetragon.sh`, `scripts/install-gateway-api.sh`, `scripts/install-metallb.sh`, `scripts/setup-clustermesh.sh`
+- **구현**: `addons/scripts/install-cilium.sh`, `addons/scripts/install-tetragon.sh`, `addons/scripts/install-gateway-api.sh`, `addons/scripts/install-metallb.sh`, `addons/scripts/setup-clustermesh.sh`
 
 ### Phase 4: 시크릿/PKI 관리 구성
 - cert-manager 설치 (전 클러스터) + Phase 1 Self-signed ClusterIssuer + CA Certificate
 - Vault 설치 (mgmt, standalone, local-path-retain StorageClass, LoadBalancer)
 - External Secrets Operator 배포 (전 클러스터, refreshInterval 1h 캐시, Vault ClusterSecretStore)
 - Phase 2: Vault Issuer 전환 (운영 안정화 후)
-- **구현**: `scripts/install-cert-manager.sh`, `scripts/install-vault.sh`, `scripts/install-eso.sh`
+- **구현**: `addons/scripts/install-cert-manager.sh`, `addons/scripts/install-vault.sh`, `addons/scripts/install-eso.sh`
 
 ### Phase 5: 보안 정책 적용
 - PSA 설정: 기본 baseline enforce, restricted audit/warn (cloud-init에서 자동 적용)
 - PSA 예외 등록: kube-system, cilium-system, monitoring, vault
 - Kyverno 설치 (app1/app2만, mgmt 제외 - C4)
-  - 이미지 레지스트리 제한 (localhost:8443, docker.io/library, registry.k8s.io, quay.io)
+  - 이미지 레지스트리 제한 (harbor.bocopile.io, docker.io/library, registry.k8s.io, quay.io)
   - 리소스 제한 필수 (requests/limits)
   - 권한 있는 컨테이너 금지
   - 라벨 필수 (audit: app, version)
 - Falco 설치 (app1/app2, eBPF 드라이버, Prometheus 메트릭)
-- **구현**: `scripts/install-kyverno.sh`, `scripts/install-falco.sh`
+- **구현**: `addons/scripts/install-kyverno.sh`, `addons/scripts/install-falco.sh`
 
 ### Phase 6: 플랫폼 부가 도구 (mgmt)
 - local-path-retain StorageClass 생성
@@ -79,7 +79,7 @@
 - OpenCost (리소스 비용 가시화)
 - VPA + Goldilocks (리소스 추천, recommender-only)
 - Chaos Mesh (장애 주입 테스트)
-- **구현**: `scripts/install-platform-addons.sh`
+- **구현**: `addons/scripts/install-platform-addons.sh`
 
 ### Phase 7: 관찰성 스택 구성
 - mgmt: Vault 설치 (Phase 4에서 완료)
@@ -89,13 +89,13 @@
 - 전 클러스터: Promtail (Loki로 push, cluster 라벨 추가)
 - app1/app2: Prometheus Agent Mode (Thanos Receive로 remote_write, WAL 2h)
 - Grafana에 Thanos Query + Loki 데이터소스 자동 구성
-- **구현**: `scripts/install-thanos.sh`, `scripts/install-prometheus-stack.sh`, `scripts/install-loki.sh`, `scripts/install-prometheus-agent.sh`
+- **구현**: `addons/scripts/install-thanos.sh`, `addons/scripts/install-prometheus-stack.sh`, `addons/scripts/install-loki.sh`, `addons/scripts/install-alloy.sh`
 
 ### Phase 8: GitOps 및 백업 구성
 - mgmt에 ArgoCD 배포, app1/app2 클러스터 자동 등록
 - MinIO 설치 (mgmt, 50Gi, LoadBalancer, velero-backups 버킷 자동 생성)
 - Velero 설치 (전 클러스터, 클러스터별 prefix, AWS plugin + node-agent)
-- **구현**: `scripts/install-argocd.sh`, `scripts/install-minio.sh`, `scripts/install-velero.sh`
+- **구현**: `addons/scripts/install-argocd.sh`, `addons/scripts/install-minio.sh`, `addons/scripts/install-velero.sh`
 
 ### Phase 9: 통합 검증
 - 클러스터 간 서비스 디스커버리 테스트 (Cilium Cluster Mesh)
@@ -108,13 +108,14 @@
 
 1. **Terraform 코드** (`main.tf`, `locals.tf`, `variables.tf`, `versions.tf`, `outputs.tf`)
 2. **Cloud-Init 템플릿** (`templates/cloud-init-k8s.yaml.tpl`)
-3. **Shell Script 23개** (`scripts/` 디렉토리)
-   - 클러스터 관리: `cluster-init.sh`, `cluster-join.sh`, `merge-kubeconfigs.sh`, `delete-all.sh`, `verify-clusters.sh`
-   - 네트워크: `install-cilium.sh`, `install-metallb.sh`, `setup-clustermesh.sh`, `install-gateway-api.sh`
+3. **Shell Script** (`scripts/` + `addons/scripts/` 디렉토리)
+   - 클러스터 관리 (`scripts/`): `cluster-init.sh`, `cluster-join.sh`, `merge-kubeconfigs.sh`, `delete-all.sh`, `verify-clusters.sh`
+   - Addon 일괄 설치: `addons/install.sh --all`
+   - 네트워크 (`addons/scripts/`): `install-cilium.sh`, `install-metallb.sh`, `setup-clustermesh.sh`, `install-gateway-api.sh`
    - 보안: `install-tetragon.sh`, `install-kyverno.sh`, `install-falco.sh`
    - PKI/시크릿: `install-cert-manager.sh`, `install-vault.sh`, `install-eso.sh`
-   - 관찰성: `install-prometheus-stack.sh`, `install-thanos.sh`, `install-prometheus-agent.sh`, `install-loki.sh`
-   - 플랫폼: `install-platform-addons.sh`
+   - 관찰성: `install-prometheus-stack.sh`, `install-thanos.sh`, `install-alloy.sh`, `install-loki.sh`, `install-tempo.sh`, `install-opensearch.sh`
+   - 플랫폼: `install-platform-addons.sh`, `install-k8sgpt.sh`
    - GitOps: `install-argocd.sh`
    - 백업: `install-minio.sh`, `install-velero.sh`
 4. **아키텍처 문서** (`ARCHITECTURE.md`) - ADR, 보안, 관찰성, 장애 도메인, 리소스 계획, 서비스 접근 레퍼런스, 보안 운영 체크리스트
@@ -151,19 +152,17 @@
 | 클러스터 | 노드 | RAM | CPU | 디스크 |
 |---------|------|-----|-----|--------|
 | mgmt | mgmt-cp | 4GB | 2 | 40GB |
-| mgmt | mgmt-worker-0 | 8GB | 2 | 60GB |
+| mgmt | mgmt-worker-0 | 10GB | 2 | 60GB |
 | app1 | app1-cp | 3GB | 2 | 30GB |
 | app1 | app1-worker-0 | 4GB | 2 | 40GB |
 | app2 | app2-cp | 3GB | 2 | 30GB |
 | app2 | app2-worker-0 | 4GB | 2 | 40GB |
-| **합계** | | **26GB** | **12** | **240GB** |
+| **합계** | | **28GB** | **12** | **240GB** |
 
 ## R: 자료 참고
 
-- **아키텍처 문서**: [ARCHITECTURE.md](ARCHITECTURE.md) v4.0.0
-- **구현 가이드**: [IMPLEMENTATION-GUIDE.md](IMPLEMENTATION-GUIDE.md)
-- **운영 런북**: [OPERATIONS-RUNBOOK.md](OPERATIONS-RUNBOOK.md)
-- **기술 스택 공식 문서**: kubeadm v1.35, Cilium 1.19.0, Vault, cert-manager, ESO, Prometheus Agent Mode, Thanos, Loki, Grafana, ArgoCD, Velero, Kyverno, Falco, Tetragon, Trivy, MetalLB, Gateway API
+- **아키텍처 문서**: [ARCHITECTURE.md](ARCHITECTURE.md) v6.0.0
+- **기술 스택 공식 문서**: kubeadm v1.35, Cilium 1.19.0, Vault, cert-manager, ESO, Grafana Alloy 1.5.0, Thanos, Loki, Grafana, ArgoCD, Velero, Kyverno, Falco, Tetragon, Trivy, MetalLB, Gateway API
 - **아키텍처 불변 조건(Architecture Contract)**:
   - C1: mgmt 장애 시에도 app 클러스터 워크로드는 **독립 실행** 지속
   - C2: Prometheus Agent WAL 로컬 버퍼링 유지 (**2시간** retention)
