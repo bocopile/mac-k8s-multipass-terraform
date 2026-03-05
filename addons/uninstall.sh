@@ -13,6 +13,14 @@ if [[ ! -f "${KUBECONFIG_MULTI}" ]]; then
   exit 1
 fi
 
+# 클러스터 컨텍스트 동적 로드 (clusters.json → 없으면 기본값)
+CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
+if [[ -f "${CLUSTERS_JSON}" ]]; then
+  mapfile -t ALL_CONTEXTS < <(jq -r 'keys[] | "kubernetes-admin@\(.)"' "${CLUSTERS_JSON}")
+else
+  ALL_CONTEXTS=("kubernetes-admin@mgmt" "kubernetes-admin@app1" "kubernetes-admin@app2")
+fi
+
 # Addon별 네임스페이스 및 리소스 정의
 declare -A ADDON_NAMESPACES=(
     ["priority-classes"]="_cluster_scoped_"
@@ -150,7 +158,7 @@ uninstall_addon() {
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  Uninstalling: $addon (cluster-scoped)"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        for context in "kubernetes-admin@mgmt" "kubernetes-admin@app1" "kubernetes-admin@app2"; do
+        for context in "${ALL_CONTEXTS[@]}"; do
             echo "Deleting PriorityClasses on ${context}..."
             kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$context" \
                 delete priorityclass platform-critical platform-normal --ignore-not-found || true
@@ -174,7 +182,7 @@ uninstall_addon() {
         for release in $releases; do
             for ns in $namespaces; do
                 echo "Checking Helm release: $release in namespace: $ns"
-                for context in "kubernetes-admin@mgmt" "kubernetes-admin@app1" "kubernetes-admin@app2"; do
+                for context in "${ALL_CONTEXTS[@]}"; do
                     if helm list --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$context" -n "$ns" 2>/dev/null | grep -q "^${release}"; then
                         echo "Uninstalling Helm release: $release (context: $context, namespace: $ns)"
                         helm uninstall "$release" --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$context" -n "$ns" || true
@@ -187,7 +195,7 @@ uninstall_addon() {
     # 네임스페이스 삭제
     for ns in $namespaces; do
         echo "Checking namespace: $ns"
-        for context in "kubernetes-admin@mgmt" "kubernetes-admin@app1" "kubernetes-admin@app2"; do
+        for context in "${ALL_CONTEXTS[@]}"; do
             if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$context" get namespace "$ns" &>/dev/null; then
                 echo "Deleting namespace: $ns (context: $context)"
                 kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$context" delete namespace "$ns" --timeout=60s || true
@@ -216,7 +224,7 @@ main() {
                 fi
                 ns=$2
                 echo "Deleting all resources in namespace: $ns"
-                for context in "kubernetes-admin@mgmt" "kubernetes-admin@app1" "kubernetes-admin@app2"; do
+                for context in "${ALL_CONTEXTS[@]}"; do
                     kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$context" delete namespace "$ns" --timeout=60s 2>/dev/null || true
                 done
                 exit 0
