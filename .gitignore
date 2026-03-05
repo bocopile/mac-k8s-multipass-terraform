@@ -78,3 +78,8 @@ tfplan.out
 *.backup
 tofu.plan
 *.tofuplan
+
+# Terraform 변수 파일 (비밀번호 등 민감 정보 포함 가능)
+# terraform.tfvars.example 은 커밋 허용 (템플릿)
+*.tfvars
+!*.tfvars.example
