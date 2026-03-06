@@ -1,0 +1,40 @@
+#!/bin/bash
+set -euo pipefail
+
+# Usage: install-gateway-api.sh
+# 전 클러스터에 Gateway API CRD 설치 + Cilium Gateway API 활성화
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Load libraries
+source "${SCRIPT_DIR}/../../../scripts/lib/common.sh"
+source "${SCRIPT_DIR}/../../../scripts/lib/constants.sh"
+
+# Setup
+setup_common_vars
+
+# Gateway API CRD 버전 (experimental 채널: TCPRoute, TLSRoute 포함)
+GATEWAY_API_VERSION="v1.2.1"
+
+CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
+
+for CLUSTER in ${CLUSTERS}; do
+  echo "=== Installing Gateway API CRDs on ${CLUSTER} ==="
+
+  # Gateway API CRD 설치 (experimental channel)
+  $(get_kubectl_cmd "${CLUSTER}") \
+    apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml"
+
+  echo "=== Enabling Cilium Gateway API on ${CLUSTER} ==="
+
+  # Cilium에 Gateway API 활성화 (helm upgrade)
+  cilium upgrade \
+    --set gatewayAPI.enabled=true \
+    --context "kubernetes-admin@${CLUSTER}" \
+    --kubeconfig "${KUBECONFIG_MULTI}" \
+    --wait
+
+  echo "=== Gateway API enabled on ${CLUSTER} ==="
+done
+
+echo "=== Gateway API installation complete on all clusters ==="

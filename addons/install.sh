@@ -7,16 +7,54 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ADDON_SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
 
-# Addon 카테고리 정의
-declare -A CATEGORIES
-CATEGORIES[infrastructure]="priority-classes local-path-provisioner cilium tetragon metallb gateway-api cert-manager clustermesh"
-CATEGORIES[secrets]="vault vault-pki eso"
-CATEGORIES[gitops]="argocd"
-CATEGORIES[observability]="thanos prometheus-stack loki tempo opensearch alloy"
-CATEGORIES[servicemesh]="istio kiali"
-CATEGORIES[security]="kyverno falco platform-addons"
-CATEGORIES[aiops]="k8sgpt holmesgpt botkube"
-CATEGORIES[backup]="minio velero"
+# Addon 카테고리 정의 (bash 3.2 호환 — 연관 배열 미사용)
+CATEGORY_NAMES="infrastructure secrets gitops observability servicemesh security aiops backup"
+
+get_category_addons() {
+    case "$1" in
+        infrastructure) echo "priority-classes local-path-provisioner cilium tetragon metallb gateway-api cert-manager clustermesh" ;;
+        secrets)        echo "vault vault-pki eso" ;;
+        gitops)         echo "argocd" ;;
+        observability)  echo "thanos prometheus-stack prometheus-agent loki tempo alloy otel-collector" ;;
+        servicemesh)    echo "istio kiali" ;;
+        security)       echo "kyverno falco platform-addons" ;;
+        aiops)          echo "k8sgpt holmesgpt botkube" ;;
+        backup)         echo "minio velero" ;;
+        *)              return 1 ;;
+    esac
+}
+
+# addon 이름 → 카테고리(서브디렉토리) 역매핑
+get_addon_category() {
+    local addon="$1"
+    local category
+    for category in ${CATEGORY_NAMES}; do
+        local addons
+        addons=$(get_category_addons "$category")
+        local a
+        for a in $addons; do
+            if [[ "$a" == "$addon" ]]; then
+                echo "$category"
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+# addon 이름 → 스크립트 경로
+get_addon_script() {
+    local addon="$1"
+    local category
+    category=$(get_addon_category "$addon") || { echo ""; return 1; }
+
+    # setup-* 스크립트 특수 처리
+    case "$addon" in
+        clustermesh) echo "${ADDON_SCRIPTS_DIR}/${category}/setup-clustermesh.sh" ;;
+        vault-pki)   echo "${ADDON_SCRIPTS_DIR}/${category}/setup-vault-pki.sh" ;;
+        *)           echo "${ADDON_SCRIPTS_DIR}/${category}/install-${addon}.sh" ;;
+    esac
+}
 
 set -u
 
@@ -42,7 +80,6 @@ INSTALL_ORDER=(
     "prometheus-stack"
     "loki"
     "tempo"
-    "opensearch"
     "alloy"
     "istio"
     "kiali"
@@ -59,34 +96,24 @@ usage() {
 
 옵션:
     --all               모든 addon 설치 (botkube 제외)
-    --category <name>   카테고리별 설치 (secrets, gitops, observability, servicemesh, security, aiops, backup)
+    --category <name>   카테고리별 설치
     --yes               확인 프롬프트 없이 즉시 설치 (CI/자동화 환경용)
     --list              설치 가능한 addon 목록 출력
     -h, --help          도움말 출력
 
 예시:
-    # 모든 addon 설치
     $(basename "$0") --all
-
-    # CI 환경 (확인 없이)
     $(basename "$0") --all --yes
-
-    # 특정 카테고리 설치
     $(basename "$0") --category observability
-
-    # 특정 addon만 설치
     $(basename "$0") vault argocd prometheus-stack
-
-    # 여러 addon 설치
-    $(basename "$0") vault eso argocd
 
 카테고리:
     infrastructure  - Cilium CNI, Tetragon, MetalLB, Gateway API, cert-manager, Cluster Mesh
     secrets         - Vault, Vault PKI, External Secrets Operator
     gitops          - ArgoCD
-    observability   - Prometheus, Thanos, Loki, Tempo, OpenSearch, Grafana Alloy
+    observability   - Prometheus, Thanos, Loki, Tempo, Grafana Alloy
     servicemesh     - Istio, Kiali
-    security        - Kyverno, Falco, Platform Addons (Trivy, K8sGPT Operator, etc.)
+    security        - Kyverno, Falco, Platform Addons
     aiops           - K8sGPT, HolmesGPT, Botkube
     backup          - MinIO, Velero
 
@@ -100,23 +127,18 @@ list_addons() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  Available Addons"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    for category in "${!CATEGORIES[@]}"; do
+    for category in ${CATEGORY_NAMES}; do
         echo ""
         echo "[$category]"
-        local addons="${CATEGORIES[$category]}"
+        local addons
+        addons=$(get_category_addons "$category")
         for addon in $addons; do
-            local script="${ADDON_SCRIPTS_DIR}/install-${addon}.sh"
-            # setup-* 스크립트 특수 처리
-            if [[ "$addon" == "clustermesh" ]]; then
-                script="${ADDON_SCRIPTS_DIR}/setup-clustermesh.sh"
-            elif [[ "$addon" == "vault-pki" ]]; then
-                script="${ADDON_SCRIPTS_DIR}/setup-vault-pki.sh"
-            fi
-
+            local script
+            script=$(get_addon_script "$addon")
             if [[ -f "$script" ]]; then
                 echo "  ✓ $addon"
             else
-                echo "  ✗ $addon (script not found: $script)"
+                echo "  ✗ $addon (script not found)"
             fi
         done
     done
@@ -127,14 +149,11 @@ list_addons() {
 # Addon 설치
 install_addon() {
     local addon=$1
-    local script="${ADDON_SCRIPTS_DIR}/install-${addon}.sh"
-
-    # setup-* 스크립트 특수 처리
-    if [[ "$addon" == "clustermesh" ]]; then
-        script="${ADDON_SCRIPTS_DIR}/setup-clustermesh.sh"
-    elif [[ "$addon" == "vault-pki" ]]; then
-        script="${ADDON_SCRIPTS_DIR}/setup-vault-pki.sh"
-    fi
+    local script
+    script=$(get_addon_script "$addon") || {
+        echo "ERROR: Unknown addon: $addon"
+        return 1
+    }
 
     if [[ ! -f "$script" ]]; then
         echo "ERROR: Addon script not found: $script"
@@ -167,7 +186,6 @@ main() {
     while [[ $# -gt 0 ]]; do
         case $1 in
             --all)
-                # 모든 addon 설치 (botkube는 수동 설치 필요하므로 제외)
                 for addon in "${INSTALL_ORDER[@]}"; do
                     if [[ "$addon" != "botkube" ]]; then
                         addons_to_install+=("$addon")
@@ -181,13 +199,14 @@ main() {
                     usage
                     exit 1
                 fi
-                category=$2
-                if [[ ! -v CATEGORIES[$category] ]]; then
+                local category=$2
+                local category_addons
+                category_addons=$(get_category_addons "$category" 2>/dev/null) || {
                     echo "ERROR: Unknown category: $category"
                     usage
                     exit 1
-                fi
-                for addon in ${CATEGORIES[$category]}; do
+                }
+                for addon in ${category_addons}; do
                     addons_to_install+=("$addon")
                 done
                 shift 2
@@ -216,7 +235,6 @@ main() {
         esac
     done
 
-    # Addon이 지정되지 않은 경우
     if [[ ${#addons_to_install[@]} -eq 0 ]]; then
         echo "ERROR: No addons specified"
         usage
@@ -233,7 +251,7 @@ main() {
         done
     done
 
-    # 설치 시작
+    # 설치 계획 출력
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  Addon Installation Plan"
