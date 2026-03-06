@@ -36,9 +36,21 @@ for CLUSTER in ${CLUSTERS}; do
     --for=condition=available --timeout="${TIMEOUT_POD_READY}s" \
     || log_warn "local-path-provisioner not ready within ${TIMEOUT_POD_READY}s on ${CLUSTER}"
 
+  # local-path-retain StorageClass 생성 (Retain 정책 — Vault, Loki, Tempo 등 StatefulSet용)
+  log_info "Creating local-path-retain StorageClass on ${CLUSTER}"
+  kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" apply -f - <<'SCEOF'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path-retain
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+SCEOF
+
   log_info "local-path-provisioner installed on ${CLUSTER}"
 done
 
 echo ""
 echo "=== local-path-provisioner ${LOCAL_PATH_VERSION} installed on all clusters ==="
-echo "StorageClass: local-path (default)"
+echo "StorageClass: local-path (default), local-path-retain (Retain)"

@@ -18,19 +18,7 @@ source "${SCRIPT_DIR}/../../../scripts/lib/constants.sh"
 # Setup
 setup_common_vars
 
-# =============================================================================
-# 0. local-path-retain StorageClass 생성 (§6.2)
-# =============================================================================
-echo "=== Creating local-path-retain StorageClass on mgmt ==="
-$(get_kubectl_cmd mgmt) apply -f - <<'EOF'
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: local-path-retain
-provisioner: rancher.io/local-path
-reclaimPolicy: Retain
-volumeBindingMode: WaitForFirstConsumer
-EOF
+# NOTE: local-path-retain StorageClass는 install-local-path-provisioner.sh에서 생성됨
 
 # =============================================================================
 # Helm Repo 등록
