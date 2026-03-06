@@ -32,10 +32,6 @@
 - [x] 기본 버전이 app 버전(2.6.1)이었음 → chart 버전(1.24.4)으로 수정
 - [x] `--set tempo.tag` 제거 (chart 버전을 image tag로 잘못 사용)
 
-### install-opensearch.sh — 2건 수정
-- [x] 복잡한 config YAML string → 개별 `--set` 파라미터로 분리
-- [x] `extraEnvs[0]` discovery.type 중복 제거
-
 ### install-velero.sh — 2건 수정
 - [x] bitnami kubectl 이미지 삭제됨 → `alpine/k8s:1.35.2` 사용
 - [x] ServiceMonitor CRD 미존재 → `metrics.serviceMonitor.enabled=false`
@@ -70,11 +66,6 @@ Docker Hub의 `bitnami/*` 이미지가 전면 삭제됨. 영향받는 차트:
 |-------|-------------|------|
 | velero | CRD job의 distroless 호환 문제 | `upgradeCRDs=false`로 CRD job 스킵 |
 | thanos | bitnami chart 이미지 | quay.io 오버라이드, 수동 재실행 성공 |
-
-### 별도 VM 구축 예정
-| Addon | 비고 |
-|-------|------|
-| opensearch | 별도 VM에 구축 (Harbor/Nexus와 동일 패턴). 감사/보안 로그 분석 전용 |
 
 ### --all 실행 시 실패한 addon (2차 조치 필요)
 | Addon | 실패 원인 | 조치 방안 |

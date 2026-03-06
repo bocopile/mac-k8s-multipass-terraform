@@ -5,7 +5,7 @@ set -euo pipefail
 # Grafana Alloy를 모든 클러스터에 DaemonSet으로 설치합니다.
 # Promtail + Prometheus Agent + OTel Collector를 단일 에이전트로 통합합니다.
 # - 로그 수집: loki.source.kubernetes → Loki (전체 로그, ADR-006)
-#              loki.source.kubernetes → otelcol bridge → OpenSearch (선별 로그, 선택적)
+#              loki.source.kubernetes → Loki (전체 로그)
 # - 트레이스 수집: otelcol.receiver.otlp → Tempo
 # - 메트릭 수집: prometheus.scrape → Thanos remote_write (app 클러스터만)
 
@@ -44,16 +44,6 @@ else
   echo "  app 클러스터에서 메트릭 remote_write가 비활성화됩니다."
 fi
 
-# OpenSearch LoadBalancer IP (선택적 - 없으면 OpenSearch 이중화 비활성화)
-OPENSEARCH_LB_IP=""
-if [[ -f "${GENERATED_DIR}/opensearch-lb-ip" ]]; then
-  OPENSEARCH_LB_IP=$(cat "${GENERATED_DIR}/opensearch-lb-ip")
-  echo "OpenSearch LB IP: ${OPENSEARCH_LB_IP}"
-else
-  echo "INFO: OpenSearch LB IP not found. OpenSearch dual-write 비활성화."
-  echo "  OpenSearch 설치 후 재실행: addons/install.sh opensearch alloy"
-fi
-
 # Tempo gRPC 엔드포인트 (Cluster Mesh로 전 클러스터에서 접근 가능)
 TEMPO_GRPC_ENDPOINT="tempo.${NAMESPACE_OBSERVABILITY}.svc.cluster.local:4317"
 
@@ -71,14 +61,6 @@ for CLUSTER in ${CLUSTERS}; do
     LOKI_URL="http://loki.${NAMESPACE_OBSERVABILITY}.svc.cluster.local:3100"
     ENABLE_METRICS="false"
     THANOS_REMOTE_WRITE_URL=""
-    # mgmt는 OpenSearch와 같은 클러스터이므로 in-cluster 주소 사용
-    if [[ -n "${OPENSEARCH_LB_IP}" ]]; then
-      OPENSEARCH_URL="http://opensearch.${NAMESPACE_OBSERVABILITY}.svc.cluster.local:9200"
-      ENABLE_OPENSEARCH="true"
-    else
-      OPENSEARCH_URL=""
-      ENABLE_OPENSEARCH="false"
-    fi
   else
     if [[ -n "${LOKI_LB_IP}" ]]; then
       LOKI_URL="http://${LOKI_LB_IP}:3100"
@@ -96,14 +78,6 @@ for CLUSTER in ${CLUSTERS}; do
       echo "  WARNING: Thanos IP 없음. ${CLUSTER} 메트릭 수집 비활성화."
     fi
 
-    # app 클러스터는 LoadBalancer IP로 OpenSearch 접근
-    if [[ -n "${OPENSEARCH_LB_IP}" ]]; then
-      OPENSEARCH_URL="http://${OPENSEARCH_LB_IP}:9200"
-      ENABLE_OPENSEARCH="true"
-    else
-      OPENSEARCH_URL=""
-      ENABLE_OPENSEARCH="false"
-    fi
   fi
 
   # Namespace 생성 (Alloy는 노드 로그 접근을 위해 privileged PSA 필요)
@@ -114,13 +88,6 @@ for CLUSTER in ${CLUSTERS}; do
   # 주의: single-quoted heredoc으로 bash 변수 확장 방지 (placeholder 사용)
   # =============================================================================
   ALLOY_CONFIG_FILE="${GENERATED_DIR}/alloy-config-${CLUSTER}.alloy"
-
-  # OpenSearch dual-write 활성화 여부에 따라 forward_to 플레이스홀더 결정
-  if [[ "${ENABLE_OPENSEARCH}" == "true" ]]; then
-    OS_FORWARD_TO=", otelcol.receiver.loki.os_bridge.receiver"
-  else
-    OS_FORWARD_TO=""
-  fi
 
   # 기본 config: 로그 수집 + 트레이스 수집
   cat > "${ALLOY_CONFIG_FILE}" <<'ALLOY_EOF'
@@ -167,11 +134,11 @@ discovery.relabel "pods" {
 }
 
 // ---------------------------------------------------------------------------
-// Log Collection: Kubernetes Pods → Loki (전체) + OpenSearch (선별, 선택적)
+// Log Collection: Kubernetes Pods → Loki
 // ---------------------------------------------------------------------------
 loki.source.kubernetes "pods" {
   targets    = discovery.relabel.pods.output
-  forward_to = [loki.write.loki.receiver__OS_FORWARD_TO__]
+  forward_to = [loki.write.loki.receiver]
 }
 
 loki.write "loki" {
@@ -228,7 +195,6 @@ ALLOY_EOF
     -e "s|__CLUSTER__|${CLUSTER}|g" \
     -e "s|__LOKI_URL__|${LOKI_URL}|g" \
     -e "s|__TEMPO_ENDPOINT__|${TEMPO_GRPC_ENDPOINT}|g" \
-    -e "s|__OS_FORWARD_TO__|${OS_FORWARD_TO}|g" \
     "${ALLOY_CONFIG_FILE}"
   rm -f "${ALLOY_CONFIG_FILE}.bak"
 
@@ -327,56 +293,6 @@ METRICS_BLOCK
   fi
 
   # =============================================================================
-  # OpenSearch dual-write 파이프라인 추가 (선택적)
-  # loki.source.kubernetes → otelcol.receiver.loki (bridge)
-  #   → otelcol.processor.filter (security 네임스페이스만)
-  #   → otelcol.exporter.elasticsearch (OpenSearch)
-  # =============================================================================
-  if [[ "${ENABLE_OPENSEARCH}" == "true" ]]; then
-    cat >> "${ALLOY_CONFIG_FILE}" <<OPENSEARCH_BLOCK
-
-// ---------------------------------------------------------------------------
-// OpenSearch Dual-Write Pipeline (Security & Audit Logs)
-// Loki format → OTLP bridge → filter → OpenSearch
-// ---------------------------------------------------------------------------
-
-// Bridge: Loki log format → OTLP logs (in-process, no HTTP port needed)
-otelcol.receiver.loki "os_bridge" {
-  forward_to = [otelcol.processor.filter.security.input]
-}
-
-// Filter: 보안/감사 관련 네임스페이스 로그만 OpenSearch로 전송
-// Drop condition: namespace가 보안 관련이 아닌 경우 제외
-otelcol.processor.filter "security" {
-  error_mode = "ignore"
-  logs {
-    log_record = [
-      "not IsMatch(attributes[\"namespace\"], \"security|kube-system|istio-system|audit|cert-manager|vault\")",
-    ]
-  }
-  output {
-    logs = [otelcol.exporter.elasticsearch.opensearch.input]
-  }
-}
-
-// Export: OpenSearch (Elasticsearch 호환 API)
-otelcol.exporter.elasticsearch "opensearch" {
-  endpoints = ["${OPENSEARCH_URL}"]
-  index     = "logs-${CLUSTER}"
-  logs_dynamic_index {
-    enabled = true
-  }
-  retry {
-    enabled         = true
-    max_requests    = 3
-    initial_interval = "1s"
-    max_interval    = "30s"
-  }
-}
-OPENSEARCH_BLOCK
-  fi
-
-  # =============================================================================
   # Helm으로 Alloy 설치
   # =============================================================================
   $(get_helm_cmd "${CLUSTER}") upgrade --install alloy grafana/alloy \
@@ -447,11 +363,6 @@ echo "  통합 대상:"
 echo "    ✅ Promtail        → loki.source.kubernetes (로그)"
 echo "    ✅ OTel Collector  → otelcol.receiver.otlp (트레이스)"
 echo "    ✅ Prometheus Agent→ prometheus.scrape (메트릭, app 클러스터)"
-if [[ -n "${OPENSEARCH_LB_IP}" ]]; then
-echo ""
-echo "  OpenSearch dual-write:"
-echo "    ✅ security|kube-system|istio-system 로그 → OpenSearch (${OPENSEARCH_LB_IP})"
-fi
 echo "================================================================="
 echo ""
 echo "검증:"

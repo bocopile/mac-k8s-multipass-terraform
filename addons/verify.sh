@@ -29,7 +29,7 @@ declare -A ADDON_CHECK=(
     ["prometheus-stack"]="mgmt:monitoring:statefulset:prometheus-kube-prometheus-stack-prometheus"
     ["alloy"]="mgmt:observability:daemonset:alloy"
     ["alloy-app1"]="app1:observability:daemonset:alloy"
-    ["opensearch"]="mgmt:observability:statefulset:opensearch"
+
     ["loki"]="mgmt:observability:statefulset:loki"
     ["tempo"]="mgmt:observability:deployment:tempo"
     ["istio"]="mgmt:istio-system:deployment:istiod"

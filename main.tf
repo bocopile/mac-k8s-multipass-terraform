@@ -272,47 +272,6 @@ resource "null_resource" "verify_infra" {
 }
 
 
-/*  COMMENTED OUT — Azure Infra 연동 (별도 적용 시 주석 해제)
-# =============================================================================
-# Azure Infra 연동 삭제 (tofu destroy 시 azure-infra도 함께 삭제)
-# =============================================================================
-resource "null_resource" "destroy_azure_infra" {
-  # path.module을 triggers에 저장 → destroy provisioner에서 self.triggers로 참조
-  triggers = {
-    azure_infra_dir = "${path.module}/azure-infra"
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<-EOT
-      set -euo pipefail
-      AZURE_DIR="${self.triggers.azure_infra_dir}"
-
-      # state 또는 tfvars가 없으면 azure-infra가 미적용 상태 → 스킵
-      if [[ ! -f "$AZURE_DIR/terraform.tfstate" ]] || [[ ! -f "$AZURE_DIR/terraform.tfvars" ]]; then
-        echo "=== Azure Infra: state/tfvars 없음 → 스킵 (azure-infra 미적용) ==="
-        exit 0
-      fi
-
-      echo ""
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo "  Azure Infra 리소스 삭제 (Harbor VM + Nexus VM)"
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      cd "$AZURE_DIR"
-
-      # .terraform 디렉토리가 없으면 init 재실행 (캐시 삭제 등의 경우)
-      if [[ ! -d ".terraform" ]]; then
-        echo "tofu init 실행..."
-        tofu init -upgrade
-      fi
-
-      tofu destroy -auto-approve
-      echo "=== Azure Infra 리소스 삭제 완료 ==="
-    EOT
-  }
-}
-*/
-
 # =============================================================================
 # Cleanup fallback (개별 VM destroy provisioner 실패 시 안전망)
 # =============================================================================

@@ -49,7 +49,7 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | **Service Mesh** | Istio 1.29.0 + Cilium CNI 통합 |
 | **GitOps** | ArgoCD (mgmt 클러스터, chart 7.7.11) |
 | **시크릿/PKI** | Vault + External Secrets Operator + cert-manager v1.19.3 |
-| **관찰성** | Prometheus + Thanos + Loki + Grafana Alloy 1.5.0 + Tempo 2.6.1 + OpenSearch 2.18.0 + Grafana + Hubble + Kiali 1.91.0 |
+| **관찰성** | Prometheus + Thanos + Loki + Grafana Alloy 1.5.0 + Tempo 2.6.1 + Grafana + Hubble + Kiali 1.91.0 |
 | **보안** | PSA + Kyverno 3.3.4 + Falco 4.16.0 + Tetragon 1.3.0 + Trivy |
 | **AIOps** | K8sGPT + HolmesGPT (Robusta 0.13.0) + OpenCost + VPA + Chaos Mesh |
 | **백업** | Velero 8.2.0 + MinIO |
@@ -151,7 +151,7 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 
 | 클러스터 | 역할 | 주요 컴포넌트 |
 |---------|------|-------------|
-| **mgmt** | 플랫폼 서비스 | Vault, Prometheus Full, Thanos, Loki, Grafana, Tempo, OpenSearch, Alertmanager, ArgoCD, Velero, MinIO, Trivy, K8sGPT, HolmesGPT, LocalAI, Botkube(선택), OpenCost, VPA+Goldilocks, Chaos Mesh, Istio (Istiod+Gateway), Kiali |
+| **mgmt** | 플랫폼 서비스 | Vault, Prometheus Full, Thanos, Loki, Grafana, Tempo, Alertmanager, ArgoCD, Velero, MinIO, Trivy, K8sGPT, HolmesGPT, LocalAI, Botkube(선택), OpenCost, VPA+Goldilocks, Chaos Mesh, Istio (Istiod+Gateway), Kiali |
 | **app1** | 워크로드 A | 애플리케이션, Grafana Alloy, Kyverno, Falco, Istio Sidecar |
 | **app2** | 워크로드 B | 애플리케이션, Grafana Alloy, Kyverno, Falco |
 | **공통** | 전 클러스터 | Cilium, Tetragon DaemonSet, MetalLB, cert-manager, ESO, Velero |
@@ -167,42 +167,6 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | app2 | app2-cp | 3GB | 2 | 30GB |
 | app2 | app2-worker-0 | 4GB | 2 | 40GB |
 | **K8s 합계** | | **28GB** | **12** | **240GB** |
-
-### 4.4 Infra VM 스펙 (Azure, K8s 클러스터 외부)
-
-로컬 K8s 클러스터와 **완전히 독립**된 Azure VM으로 운영. `tofu destroy`로 로컬 K8s를 재구성해도 이미지/아티팩트 보존.
-
-| VM | Azure 크기 | RAM | vCPU | 디스크 | 서비스 |
-|----|-----------|-----|------|--------|--------|
-| **harbor-vm** | Standard_B2s | 4GB | 2 | 80GB Premium SSD | Harbor v2.12.1 (HTTP :80) |
-| **nexus-vm** | Standard_B2ms | 8GB | 2 | 100GB Premium SSD | Nexus3 OSS (HTTP :8081) |
-
-**Azure 리소스** (`azure-infra/` 디렉토리):
-- 리전: `KoreaCentral`
-- 리소스 그룹: `rg-infra-registry` (삭제 시 전체 일괄 삭제)
-- 네트워크: `vnet-infra` (10.10.0.0/16) + NSG (SSH:22, Harbor:80, Nexus UI:8081, Nexus Docker:8082-8083)
-- Public IP: Static (재시작 후에도 IP 고정)
-
-**접근 주소** (Public IP → `/etc/hosts`에 등록):
-- Harbor: `http://harbor.bocopile.io` (Registry: `harbor.bocopile.io`)
-- Nexus:  `http://nexus.bocopile.io:8081`
-
-**Nexus 저장소 구성 (초기 설정 필요)**:
-| 저장소 | 타입 | 용도 |
-|--------|------|------|
-| `maven-central` | proxy | Maven Central 캐시 |
-| `maven-releases` | hosted | 릴리즈 JAR 저장 |
-| `maven-snapshots` | hosted | 스냅샷 JAR 저장 |
-| `npm-proxy` | proxy | npmjs.org 캐시 |
-| `npm-hosted` | hosted | 사설 npm 패키지 |
-| `raw-hosted` | hosted | 범용 파일 저장 |
-
-**구현**:
-- `azure-infra/main.tf` — Azure 리소스 + Harbor/Nexus 설치 (remote-exec)
-- `azure-infra/scripts/harbor-setup.sh.tpl` — Harbor 설치 스크립트
-- `azure-infra/scripts/nexus-setup.sh` — Nexus 설치 스크립트
-- `templates/cloud-init-infra.yaml.tpl` — Docker CE 설치 (cloud-init, Azure custom_data)
-- `scripts/configure-k8s-for-azure-infra.sh` — K8s 노드 연결 설정 (hosts + containerd)
 
 ### 4.3 CIDR 할당 (`locals.tf` 기준)
 
@@ -304,7 +268,7 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 
 | 정책 | 모드 | 내용 |
 |-----|------|------|
-| `restrict-image-registries` | Enforce | `harbor.bocopile.io/*`, `registry.k8s.io/*`, `docker.io/library/*`, `quay.io/*` 허용 |
+| `restrict-image-registries` | Enforce | `registry.k8s.io/*`, `docker.io/*`, `quay.io/*`, `ghcr.io/*` 허용 |
 | `require-resource-limits` | Enforce | requests/limits 필수 |
 | `disallow-privileged-containers` | Enforce | `privileged: false` 강제 |
 | `require-labels` | Audit | app, version 라벨 필수 |
@@ -347,8 +311,6 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | **Metrics (장기)** | Thanos Receive + Query + Compactor | mgmt | `install-thanos.sh` |
 | **Metrics (app)** | Grafana Alloy → Thanos remote_write | app1/app2 | `install-alloy.sh` |
 | **Logs (mgmt)** | Loki SingleBinary + Grafana Alloy | mgmt | `install-loki.sh`, `install-alloy.sh` |
-| **Logs (app)** | Grafana Alloy → OpenSearch | app1/app2 | `install-alloy.sh` |
-| **Log Search** | OpenSearch + Dashboards | mgmt | `install-opensearch.sh` |
 | **Tracing** | Grafana Tempo | mgmt | `install-tempo.sh` |
 | **Network** | Hubble UI + Relay | 전 클러스터 | `install-cilium.sh` |
 | **Service Graph** | Kiali | mgmt + app1 | `install-kiali.sh` |
@@ -394,8 +356,6 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 
 ### 10.1 로컬 호스트 RAM 버짓 (64GB)
 
-Harbor/Nexus는 Azure로 분리되어 로컬 부담 없음.
-
 | 구분 | RAM |
 |-----|-----|
 | macOS + IDE + 기타 | ~14GB |
@@ -411,18 +371,7 @@ Harbor/Nexus는 Azure로 분리되어 로컬 부담 없음.
 | app1-cp / app2-cp | 3GB 각 | ~1.6GB | +1.4GB |
 | app1-worker-0 / app2-worker-0 | 4GB 각 | ~2.0GB | +2.0GB (앱용) |
 
-> mgmt-worker-0 주요 컴포넌트: Vault 400MB, ArgoCD 500MB, Prometheus+Grafana 956MB, Thanos 512MB, Loki 400MB, OpenSearch 512MB, Istio 650MB, LocalAI 2GB, Robusta 512MB
-
-### 10.3 Azure Infra VM 비용 참고 (KoreaCentral)
-
-| VM | 크기 | 예상 비용 |
-|----|------|---------|
-| harbor-vm | Standard_B2s | ~$35/월 |
-| nexus-vm | Standard_B2ms | ~$60/월 |
-| Public IP × 2 | Static Standard | ~$8/월 |
-| Premium SSD 180GB | - | ~$25/월 |
-
-> 개발/학습 목적 — 사용하지 않을 때 VM 중지로 컴퓨팅 비용 절감 가능 (디스크 비용은 유지)
+> mgmt-worker-0 주요 컴포넌트: Vault 400MB, ArgoCD 500MB, Prometheus+Grafana 956MB, Thanos 512MB, Loki 400MB, Istio 650MB, LocalAI 2GB, Robusta 512MB
 
 ---
 
@@ -464,8 +413,7 @@ cloud_init → vm(6개) → init_{mgmt,app1,app2} → join_{mgmt,app1,app2}
 | 16 | `install-prometheus-stack.sh` | mgmt | Thanos 후 |
 | 17 | `install-loki.sh` | mgmt | Prometheus Stack 후 |
 | 18 | `install-tempo.sh` | mgmt | Prometheus Stack 후 |
-| 19 | `install-opensearch.sh` | mgmt | Prometheus Stack 후 |
-| 20 | `install-alloy.sh` | 전 클러스터 | OpenSearch + Thanos 후 |
+| 19 | `install-alloy.sh` | 전 클러스터 | Thanos + Loki 후 |
 | 21 | `install-istio.sh` | mgmt + app1 | Alloy 후 |
 | 22 | `install-kiali.sh` | mgmt + app1 | Istio 후 |
 | 23 | `install-kyverno.sh` | app1/app2 | Istio 후 |
@@ -523,32 +471,7 @@ kiali.bocopile.io         minio.bocopile.io
 alertmanager.bocopile.io  loki.bocopile.io
 ```
 
-### 12.4 Infra VM 서비스 접근
-
-| 서비스 | VM | 접근 URL | 인증 | IP 파일 |
-|--------|----|---------|----|--------|
-| **Harbor** | harbor-vm | http://harbor.bocopile.io | admin / Harbor@Admin2024! | `generated/harbor-ip` |
-| **Nexus** | nexus-vm | http://nexus.bocopile.io:8081 | admin / [초기 자동생성] | `generated/nexus-ip` |
-
-```bash
-# SSH 접속 정보
-SSH_KEY=generated/azure-infra-key.pem
-HARBOR_IP=$(cat generated/harbor-ip)
-NEXUS_IP=$(cat generated/nexus-ip)
-
-# Harbor 상태
-ssh -i $SSH_KEY azureuser@$HARBOR_IP "sudo docker compose -f /tmp/harbor/docker-compose.yml ps"
-
-# Nexus 상태
-ssh -i $SSH_KEY azureuser@$NEXUS_IP "sudo docker compose -f /opt/nexus/docker-compose.yml ps"
-
-# Nexus 초기 admin 비밀번호
-cat generated/nexus-admin-password
-# 또는 SSH 직접 확인
-ssh -i $SSH_KEY azureuser@$NEXUS_IP "sudo docker exec nexus cat /nexus-data/admin.password"
-```
-
-### 12.5 자격증명 조회
+### 12.4 자격증명 조회
 
 ```bash
 # 전체 자격증명

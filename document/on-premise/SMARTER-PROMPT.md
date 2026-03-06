@@ -65,7 +65,7 @@
 - PSA 설정: 기본 baseline enforce, restricted audit/warn (cloud-init에서 자동 적용)
 - PSA 예외 등록: kube-system, cilium-system, monitoring, vault
 - Kyverno 설치 (app1/app2만, mgmt 제외 - C4)
-  - 이미지 레지스트리 제한 (harbor.bocopile.io, docker.io/library, registry.k8s.io, quay.io)
+  - 이미지 레지스트리 제한 (registry.k8s.io, docker.io, quay.io, ghcr.io)
   - 리소스 제한 필수 (requests/limits)
   - 권한 있는 컨테이너 금지
   - 라벨 필수 (audit: app, version)
@@ -114,7 +114,7 @@
    - 네트워크 (`addons/scripts/`): `install-cilium.sh`, `install-metallb.sh`, `setup-clustermesh.sh`, `install-gateway-api.sh`
    - 보안: `install-tetragon.sh`, `install-kyverno.sh`, `install-falco.sh`
    - PKI/시크릿: `install-cert-manager.sh`, `install-vault.sh`, `install-eso.sh`
-   - 관찰성: `install-prometheus-stack.sh`, `install-thanos.sh`, `install-alloy.sh`, `install-loki.sh`, `install-tempo.sh`, `install-opensearch.sh`
+   - 관찰성: `install-prometheus-stack.sh`, `install-thanos.sh`, `install-alloy.sh`, `install-loki.sh`, `install-tempo.sh`
    - 플랫폼: `install-platform-addons.sh`, `install-k8sgpt.sh`
    - GitOps: `install-argocd.sh`
    - 백업: `install-minio.sh`, `install-velero.sh`

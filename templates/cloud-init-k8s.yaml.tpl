@@ -106,7 +106,7 @@ runcmd:
   - mkdir -p /etc/containerd
   - containerd config default > /etc/containerd/config.toml
   - sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-  # Harbor 등 insecure registry를 위한 certs.d 디렉토리 방식 활성화
+  # insecure registry를 위한 certs.d 디렉토리 방식 활성화
   - sed -i 's|config_path = ""|config_path = "/etc/containerd/certs.d"|' /etc/containerd/config.toml
   - mkdir -p /etc/containerd/certs.d
   - systemctl restart containerd

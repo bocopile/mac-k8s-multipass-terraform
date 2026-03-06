@@ -110,17 +110,6 @@ variable "alloy_version" {
   }
 }
 
-variable "opensearch_version" {
-  description = "OpenSearch 버전 (mgmt 클러스터 - 감사·보안 로그 검색 분석)"
-  type        = string
-  default     = "2.18.0"
-
-  validation {
-    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.opensearch_version))
-    error_message = "opensearch_version must be in semantic version format (e.g., '2.18.0')"
-  }
-}
-
 variable "kiali_version" {
   description = "Kiali Service Mesh 관찰성 대시보드 버전 (mgmt, app1 클러스터)"
   type        = string

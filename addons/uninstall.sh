@@ -39,7 +39,7 @@ declare -A ADDON_NAMESPACES=(
     ["thanos"]="observability"
     ["prometheus-stack"]="monitoring"
     ["alloy"]="observability"
-    ["opensearch"]="observability"
+
     ["loki"]="observability"
     ["tempo"]="observability"
     ["istio"]="istio-system"
@@ -70,7 +70,7 @@ declare -A ADDON_RELEASES=(
     ["thanos"]="thanos"
     ["prometheus-stack"]="kube-prometheus-stack"
     ["alloy"]="alloy"
-    ["opensearch"]="opensearch opensearch-dashboards"
+
     ["loki"]="loki"
     ["tempo"]="tempo"
     ["istio"]="istiod istio-ingress"
@@ -94,7 +94,6 @@ UNINSTALL_ORDER=(
     "kiali"
     "istio"
     "alloy"
-    "opensearch"
     "tempo"
     "loki"
     "prometheus-stack"

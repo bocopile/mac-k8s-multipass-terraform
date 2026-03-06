@@ -79,7 +79,7 @@ EOF
   # 기본 정책 적용 (§7.3 정책 범위)
   echo "Applying Kyverno policies on ${CLUSTER}..."
 
-  # 1. 이미지 레지스트리 제한 (Harbor만 허용)
+  # 1. 이미지 레지스트리 제한 (공식 레지스트리만 허용)
   $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -112,11 +112,11 @@ spec:
                 - cert-manager
                 - external-secrets
       validate:
-        message: "이미지는 Harbor 레지스트리(${HARBOR_REGISTRY}) 또는 공식 레지스트리만 허용됩니다."
+        message: "공식 레지스트리만 허용됩니다 (registry.k8s.io, docker.io, quay.io, ghcr.io)."
         pattern:
           spec:
             containers:
-              - image: "${HARBOR_REGISTRY}/* | registry.k8s.io/* | docker.io/library/* | quay.io/*"
+              - image: "registry.k8s.io/* | docker.io/library/* | docker.io/* | quay.io/* | ghcr.io/*"
 EOF
 
   # 2. 리소스 제한 필수
