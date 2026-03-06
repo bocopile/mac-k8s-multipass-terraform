@@ -76,11 +76,10 @@ metadata:
 spec:
   profile: ${PROFILE}
 
-  # Istio CNI 플러그인 사용 (Cilium과 공존)
+  # Istio CNI 비활성화 (Cilium이 CNI 담당)
   components:
     cni:
-      enabled: true
-      namespace: kube-system
+      enabled: false
 
     # Ingress Gateway 설정
     ingressGateways:
@@ -154,11 +153,6 @@ spec:
           limits:
             cpu: 200m
             memory: 256Mi
-
-      # Istio CNI 설정
-      cni:
-        enabled: true
-        chained: true  # Cilium과 chaining
 
       # Sidecar injection 자동화
       istioNamespace: istio-system
