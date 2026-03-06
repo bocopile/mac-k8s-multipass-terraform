@@ -30,7 +30,7 @@ bash scripts/check-prerequisites.sh
 |---|----------|--------|--------|
 | 1-1 | tofu init 성공 | `tofu init` | Initialized successfully |
 | 1-2 | tofu plan 오류 없음 | `tofu plan` | Plan: 6 to add (VM 6개) |
-| 1-3 | tofu apply 완료 | `tofu apply -auto-approve` | Apply complete |
+| 1-3 | tofu apply 완료 | `tofu apply -auto-approve 2>&1 \| tee tofu-apply-$(date +%Y%m%d-%H%M%S).log` | Apply complete |
 | 1-4 | VM 6개 Running | `multipass list` | 6 Running (mgmt-cp, mgmt-worker-0, app1-cp, app1-worker-0, app2-cp, app2-worker-0) |
 | 1-5 | kubeconfig 생성 | `ls generated/kubeconfig-*` | kubeconfig-mgmt, kubeconfig-app1, kubeconfig-app2, kubeconfig-multi |
 | 1-6 | 클러스터 컨텍스트 | `kubectl --kubeconfig ~/kubeconfig-multi config get-contexts` | 3개 컨텍스트 (kubernetes-admin@mgmt/app1/app2) |

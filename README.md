@@ -110,7 +110,7 @@ cd mac-k8s-multipass-terraform
 
 # 2. K8s 클러스터 생성 (10~15분)
 tofu init
-tofu apply -auto-approve
+tofu apply -auto-approve 2>&1 | tee tofu-apply-$(date +%Y%m%d-%H%M%S).log
 
 # 3. kubeconfig 설정
 export KUBECONFIG=~/kubeconfig-multi
@@ -136,8 +136,10 @@ bash addons/install.sh --all
 cd mac-k8s-multipass-terraform
 
 tofu init
-tofu apply -auto-approve
+tofu apply -auto-approve 2>&1 | tee tofu-apply-$(date +%Y%m%d-%H%M%S).log
 ```
+
+> 로그 파일은 `tofu-apply-YYYYMMDD-HHMMSS.log`로 저장됩니다.
 
 **내부 실행 순서:**
 ```
@@ -422,7 +424,7 @@ Error: directory does not exist
 
 ```bash
 mkdir -p generated
-tofu apply -auto-approve
+tofu apply -auto-approve 2>&1 | tee tofu-apply-$(date +%Y%m%d-%H%M%S).log
 ```
 
 ### 9.2 kubeconfig 병합 실패
