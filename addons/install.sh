@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ADDON_SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
 
 # Addon 카테고리 정의 (bash 3.2 호환 — 연관 배열 미사용)
-CATEGORY_NAMES="infrastructure secrets gitops observability servicemesh security aiops backup"
+CATEGORY_NAMES="infrastructure secrets gitops observability servicemesh security backup"
 
 get_category_addons() {
     case "$1" in
@@ -17,8 +17,7 @@ get_category_addons() {
         gitops)         echo "argocd" ;;
         observability)  echo "thanos prometheus-stack prometheus-agent loki tempo alloy otel-collector" ;;
         servicemesh)    echo "istio kiali" ;;
-        security)       echo "kyverno falco platform-addons" ;;
-        aiops)          echo "k8sgpt holmesgpt botkube" ;;
+        security)       echo "kyverno falco" ;;
         backup)         echo "minio velero" ;;
         *)              return 1 ;;
     esac
@@ -72,8 +71,6 @@ INSTALL_ORDER=(
     "vault-pki"
     "eso"
     "argocd"
-    "platform-addons"
-    "k8sgpt"
     "minio"          # thanos/loki/tempo가 MinIO 자격증명 필요 → 먼저 설치
     "velero"         # MinIO 버킷 의존
     "prometheus-stack" # ServiceMonitor CRD 제공 → thanos보다 먼저 설치
@@ -83,10 +80,8 @@ INSTALL_ORDER=(
     "alloy"
     "istio"
     "kiali"
-    "kyverno"
     "falco"
-    "holmesgpt"
-    "botkube"
+    "kyverno"    # Kyverno webhook이 후속 설치를 차단하지 않도록 맨 마지막
 )
 
 # 사용법 출력
@@ -113,8 +108,7 @@ usage() {
     gitops          - ArgoCD
     observability   - Prometheus, Thanos, Loki, Tempo, Grafana Alloy
     servicemesh     - Istio, Kiali
-    security        - Kyverno, Falco, Platform Addons
-    aiops           - K8sGPT, HolmesGPT, Botkube
+    security        - Kyverno, Falco
     backup          - MinIO, Velero
 
 Available addons:

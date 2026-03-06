@@ -232,7 +232,7 @@ resource "null_resource" "addons_security" {
     command = <<-EOT
       export PATH=/opt/homebrew/bin:$PATH
       bash ${path.module}/addons/install.sh \
-        kyverno falco platform-addons istio kiali \
+        istio kiali falco kyverno \
         --yes
     EOT
   }

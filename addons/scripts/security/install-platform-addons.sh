@@ -144,14 +144,18 @@ echo "  $(get_kubectl_cmd mgmt) label ns <namespace> goldilocks.fairwinds.com/en
 echo ""
 echo "=== [5/5] Installing Chaos Mesh ==="
 
+# chaos-daemon은 privileged 컨테이너 필요 (syscall injection, ptrace 등)
+ensure_namespace_privileged "chaos-mesh" "mgmt"
+
 helm upgrade --install chaos-mesh chaos-mesh/chaos-mesh \
-  --namespace chaos-mesh --create-namespace \
+  --namespace chaos-mesh \
   --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "kubernetes-admin@mgmt" \
   --set dashboard.securityMode=false \
   --set dashboard.service.type=ClusterIP \
   --set controllerManager.enableFilterNamespace=true \
   --set controllerManager.priorityClassName=platform-normal \
-  --wait --timeout 180s
+  --wait --timeout 300s \
+  || log_warn "Chaos Mesh installation timed out (non-critical addon, may still be starting)"
 
 echo "Chaos Mesh installed. Dashboard:"
 echo "  $(get_kubectl_cmd mgmt) -n chaos-mesh port-forward svc/chaos-dashboard 2333:2333"
