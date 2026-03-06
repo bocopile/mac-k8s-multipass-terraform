@@ -17,7 +17,7 @@ locals {
           role = "worker"
           mem  = "10G"  # Increased from 8G to 10G for full addon stack (~8.2GB required)
           disk = "60G"
-          cpus = 2
+          cpus = 3      # Increased from 2 to 3 for addon stack CPU headroom
         }
       }
     }
