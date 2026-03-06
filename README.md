@@ -243,20 +243,20 @@ bash addons/uninstall.sh --all
 bash addons/uninstall.sh --all --force
 ```
 
-### 6.5 설치 후 hosts 업데이트
+### 5.5 설치 후 hosts 업데이트
 
 ```bash
 # LoadBalancer IP를 /etc/hosts에 자동 등록 (sudo 필요)
-sudo bash scripts/update-hosts-mac.sh
+sudo bash scripts/update-hosts-bocopile.sh
 ```
 
 ---
 
 ## 6. 서비스 접근
 
-### 7.1 도메인 접근 (권장)
+### 6.1 도메인 접근 (권장)
 
-`update-hosts-mac.sh` 실행 후 브라우저에서 직접 접근합니다.
+`update-hosts-bocopile.sh` 실행 후 브라우저에서 직접 접근합니다.
 
 | 서비스 | URL | 기본 자격증명 |
 |--------|-----|-------------|
@@ -319,7 +319,7 @@ kubectl --kubeconfig ~/kubeconfig-multi --context kubernetes-admin@mgmt \
 
 ## 7. 운영 명령어
 
-### 8.1 클러스터 상태 확인
+### 7.1 클러스터 상태 확인
 
 ```bash
 export KUBECONFIG=~/kubeconfig-multi
@@ -340,25 +340,25 @@ cilium status --kubeconfig ~/kubeconfig-multi --context kubernetes-admin@mgmt
 cilium clustermesh status --kubeconfig ~/kubeconfig-multi --context kubernetes-admin@mgmt
 ```
 
-### 8.2 LoadBalancer IP 확인
+### 7.2 LoadBalancer IP 확인
 
 ```bash
 bash scripts/show-loadbalancer-ips.sh
 ```
 
-### 8.3 클러스터 검증
+### 7.3 클러스터 검증
 
 ```bash
 bash scripts/verify-clusters.sh
 ```
 
-### 8.4 Addon 검증
+### 7.4 Addon 검증
 
 ```bash
 bash addons/verify.sh
 ```
 
-### 8.5 Multipass VM 관리
+### 7.5 Multipass VM 관리
 
 ```bash
 # VM 목록 및 상태
@@ -374,14 +374,14 @@ multipass start mgmt-cp mgmt-worker-0 app1-cp app1-worker-0 app2-cp app2-worker-
 multipass shell mgmt-worker-0
 ```
 
-### 8.6 네트워크 정책 적용
+### 7.6 네트워크 정책 적용
 
 ```bash
 # 플랫폼 Namespace에 deny-all 기반 네트워크 정책 적용
 bash addons/scripts/apply-network-policies.sh
 ```
 
-### 8.7 Botkube 설치 (Slack 연동, 수동)
+### 7.7 Botkube 설치 (Slack 연동, 수동)
 
 Slack 토큰이 필요하여 별도 수동 설치합니다:
 
@@ -394,17 +394,15 @@ bash addons/scripts/install-botkube.sh
 
 ## 8. 전체 삭제
 
-### 9.1 K8s 클러스터 + Azure Infra 동시 삭제
-
-루트 디렉토리에서 `tofu destroy`를 실행하면 **Multipass VM과 Azure VM이 모두 삭제**됩니다.
+### 8.1 전체 삭제
 
 ```bash
 # 루트 디렉토리에서 실행
 tofu destroy -auto-approve
 ```
 
-**삭제 순서:**
-1. `null_resource.cleanup` → 모든 Multipass VM 삭제 + generated/ 정리 + ~/kubeconfig-multi 삭제
+**삭제 대상:**
+- 모든 Multipass VM 삭제 + generated/ 정리 + ~/kubeconfig-multi 삭제
 
 ### 8.2 Addon만 제거
 

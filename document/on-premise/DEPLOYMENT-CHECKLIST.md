@@ -10,7 +10,7 @@
 | # | 체크 항목 | 명령어 | 기대값 |
 |---|----------|--------|--------|
 | 0-1 | Multipass 설치 | `multipass version` | 1.15+ |
-| 0-2 | OpenTofu 또는 Terraform | `tofu version` | 1.9+ |
+| 0-2 | OpenTofu | `tofu version` | 1.11.3+ |
 | 0-3 | Helm CLI | `helm version --short` | 3.16+ |
 | 0-4 | kubectl | `kubectl version --client` | v1.35+ |
 | 0-5 | jq | `jq --version` | 1.7+ |
