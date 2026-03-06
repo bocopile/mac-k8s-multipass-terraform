@@ -27,7 +27,7 @@ add_helm_repo "grafana" "${HELM_REPO_GRAFANA}"
 echo ""
 echo "=== [1/1] Installing Loki on mgmt cluster ==="
 
-ensure_namespace "${NAMESPACE_OBSERVABILITY}" "mgmt"
+ensure_namespace_privileged "${NAMESPACE_OBSERVABILITY}" "mgmt"
 
 LOKI_VERSION="${1:-6.53.0}"
 

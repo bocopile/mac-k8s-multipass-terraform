@@ -46,9 +46,16 @@ else
 fi
 echo ""
 
-# --- TASK-002: Terraform >= 1.11.3 ---
-echo "[TASK-002] Terraform"
-if command -v terraform &>/dev/null; then
+# --- TASK-002: OpenTofu >= 1.11.3 (or Terraform) ---
+echo "[TASK-002] OpenTofu / Terraform"
+if command -v tofu &>/dev/null; then
+  TF_VER=$(tofu version -json 2>/dev/null | jq -r '.terraform_version' 2>/dev/null || tofu version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+  if version_gte "$TF_VER" "1.11.3"; then
+    check "tofu >= 1.11.3" "PASS" "v${TF_VER}"
+  else
+    check "tofu >= 1.11.3" "FAIL" "v${TF_VER} < 1.11.3"
+  fi
+elif command -v terraform &>/dev/null; then
   TF_VER=$(terraform version -json 2>/dev/null | jq -r '.terraform_version' 2>/dev/null || terraform version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
   if version_gte "$TF_VER" "1.11.3"; then
     check "terraform >= 1.11.3" "PASS" "v${TF_VER}"
@@ -56,7 +63,7 @@ if command -v terraform &>/dev/null; then
     check "terraform >= 1.11.3" "FAIL" "v${TF_VER} < 1.11.3"
   fi
 else
-  check "terraform installed" "FAIL" "not found - brew install terraform"
+  check "tofu/terraform installed" "FAIL" "not found - brew install opentofu"
 fi
 echo ""
 
@@ -90,8 +97,28 @@ else
 fi
 echo ""
 
-# --- TASK-006: Host Resources ---
-echo "[TASK-006] Host Resources"
+# --- TASK-006: Cilium CLI ---
+echo "[TASK-006] Cilium CLI"
+if command -v cilium &>/dev/null; then
+  CILIUM_VER=$(cilium version --client 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+  check "cilium CLI installed" "PASS" "v${CILIUM_VER}"
+else
+  check "cilium CLI installed" "FAIL" "not found - brew install cilium-cli"
+fi
+echo ""
+
+# --- TASK-007: ArgoCD CLI ---
+echo "[TASK-007] ArgoCD CLI"
+if command -v argocd &>/dev/null; then
+  ARGOCD_VER=$(argocd version --client --short 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+  check "argocd CLI installed" "PASS" "v${ARGOCD_VER}"
+else
+  check "argocd CLI installed" "WARN" "not found - brew install argocd (클러스터 등록 시 필요)"
+fi
+echo ""
+
+# --- TASK-008: Host Resources ---
+echo "[TASK-008] Host Resources"
 
 # RAM (macOS: sysctl hw.memsize returns bytes)
 TOTAL_RAM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo 0)

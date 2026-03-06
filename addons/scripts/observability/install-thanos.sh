@@ -23,7 +23,7 @@ add_helm_repo "bitnami" "${HELM_REPO_BITNAMI}"
 log_info "Creating Thanos Object Storage Config (MinIO)"
 
 # MinIO를 object storage로 사용 (장기 보존)
-ensure_namespace "${NAMESPACE_OBSERVABILITY}" "mgmt"
+ensure_namespace_privileged "${NAMESPACE_OBSERVABILITY}" "mgmt"
 
 $(get_kubectl_cmd mgmt) create secret generic thanos-objstore-config -n "${NAMESPACE_OBSERVABILITY}" \
   --from-literal=objstore.yml="$(cat <<EOF
@@ -105,7 +105,7 @@ $(get_helm_cmd mgmt) upgrade --install thanos bitnami/thanos \
   --set compactor.priorityClassName=platform-normal \
   --set ruler.enabled=false \
   --set metrics.enabled=true \
-  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.enabled=false \
   --wait --timeout 300s
 
 log_info "Waiting for Thanos Receive..."

@@ -66,9 +66,23 @@ $(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" get pods
 echo ""
 echo "=== Initializing Vault ==="
 
-# Vault pod가 Running 상태가 될 때까지 대기
-$(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" wait --for=condition=Ready pod/vault-0 --timeout=120s 2>/dev/null \
-  || log_warn "Vault pod not Ready within 120s (initialization may fail)"
+# Vault pod가 스케줄링 및 Running 상태가 될 때까지 대기
+echo "Waiting for Vault pod to be scheduled..."
+for i in $(seq 1 30); do
+  POD_PHASE=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" get pod vault-0 -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+  if [[ "${POD_PHASE}" == "Running" || "${POD_PHASE}" == "Pending" ]]; then
+    POD_HOST=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" get pod vault-0 -o jsonpath='{.spec.nodeName}' 2>/dev/null || echo "")
+    if [[ -n "${POD_HOST}" ]]; then
+      echo "Vault pod scheduled on ${POD_HOST} (phase: ${POD_PHASE})"
+      break
+    fi
+  fi
+  echo "  Waiting for Vault pod scheduling... (${i}/30)"
+  sleep 10
+done
+
+$(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" wait --for=condition=Ready pod/vault-0 --timeout=180s 2>/dev/null \
+  || log_warn "Vault pod not Ready within 180s (initialization may fail)"
 
 # 초기화 상태 확인
 INIT_STATUS=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" exec vault-0 -- vault status -format=json 2>/dev/null | jq -r '.initialized' || echo "false")

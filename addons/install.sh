@@ -76,8 +76,8 @@ INSTALL_ORDER=(
     "k8sgpt"
     "minio"          # thanos/loki/tempo가 MinIO 자격증명 필요 → 먼저 설치
     "velero"         # MinIO 버킷 의존
-    "thanos"         # MinIO remote_write 엔드포인트 의존
-    "prometheus-stack"
+    "prometheus-stack" # ServiceMonitor CRD 제공 → thanos보다 먼저 설치
+    "thanos"         # MinIO remote_write 엔드포인트 + ServiceMonitor CRD 의존
     "loki"
     "tempo"
     "alloy"

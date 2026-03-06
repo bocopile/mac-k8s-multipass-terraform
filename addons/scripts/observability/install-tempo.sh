@@ -31,7 +31,7 @@ add_helm_repo "grafana" "${HELM_REPO_GRAFANA}"
 # =============================================================================
 echo "[2/4] Installing Tempo..."
 
-ensure_namespace "${NAMESPACE_OBSERVABILITY}" "mgmt"
+ensure_namespace_privileged "${NAMESPACE_OBSERVABILITY}" "mgmt"
 
 $(get_helm_cmd mgmt) upgrade --install tempo grafana/tempo \
   --version "${TEMPO_VERSION}" \
@@ -46,6 +46,13 @@ $(get_helm_cmd mgmt) upgrade --install tempo grafana/tempo \
   --set resources.requests.memory=512Mi \
   --set resources.limits.cpu=1000m \
   --set resources.limits.memory=1Gi \
+  --set securityContext.runAsNonRoot=true \
+  --set securityContext.runAsUser=10001 \
+  --set securityContext.fsGroup=10001 \
+  --set securityContext.seccompProfile.type=RuntimeDefault \
+  --set tempo.securityContext.allowPrivilegeEscalation=false \
+  --set tempo.securityContext.capabilities.drop[0]=ALL \
+  --set tempo.securityContext.readOnlyRootFilesystem=true \
   --set service.type=ClusterIP \
   --set priorityClassName=platform-normal \
   --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
