@@ -7,7 +7,7 @@ set -euo pipefail
 # - Grafana 양방향 통합
 # - Prometheus + Tempo 연동
 
-KIALI_VERSION="${1:-1.91.0}"
+KIALI_VERSION="${1:-2.22.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -107,7 +107,7 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
   # ===========================================================================
   $(get_kubectl_cmd "${CLUSTER}") \
     -n istio-system wait --for=condition=available --timeout="${TIMEOUT_POD_READY}s" \
-    deployment/kiali-server || echo "WARNING: Kiali deployment not ready"
+    deployment/kiali || echo "WARNING: Kiali deployment not ready"
 
   # ===========================================================================
   # Grafana에 Kiali 데이터소스 추가 (mgmt 클러스터만)
@@ -117,7 +117,7 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
     echo "Configuring Grafana ↔ Kiali bidirectional integration..."
 
     # Kiali 서비스 URL
-    KIALI_SVC_URL="http://kiali-server.istio-system.svc:20001"
+    KIALI_SVC_URL="http://kiali.istio-system.svc:20001"
 
     # Grafana ConfigMap에 Kiali 링크 추가
     $(get_kubectl_cmd "${CLUSTER}") \
@@ -140,7 +140,8 @@ echo ""
 echo "Creating Prometheus ServiceMonitor for Kiali metrics..."
 
 for CLUSTER in ${KIALI_CLUSTERS}; do
-  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
+  if $(get_kubectl_cmd "${CLUSTER}") get crd servicemonitors.monitoring.coreos.com &>/dev/null; then
+    $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -157,8 +158,10 @@ spec:
     interval: 30s
     path: /metrics
 EOF
-
-  echo "ServiceMonitor created for ${CLUSTER}"
+    echo "ServiceMonitor created for ${CLUSTER}"
+  else
+    echo "ServiceMonitor CRD not found on ${CLUSTER}, skipping"
+  fi
 done
 
 # =============================================================================
@@ -173,10 +176,10 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
   echo "Cluster: ${CLUSTER}"
   echo "  Kiali Server:"
   $(get_kubectl_cmd "${CLUSTER}") \
-    -n istio-system get svc kiali-server -o wide
+    -n istio-system get svc kiali -o wide
   echo ""
   echo "  Access URL (port-forward):"
-  echo "    kubectl --context kubernetes-admin@${CLUSTER} -n istio-system port-forward svc/kiali-server 20001:20001"
+  echo "    kubectl --context kubernetes-admin@${CLUSTER} -n istio-system port-forward svc/kiali 20001:20001"
   echo "    http://localhost:20001/kiali"
 done
 echo "================================================================="

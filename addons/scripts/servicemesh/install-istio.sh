@@ -5,7 +5,7 @@ set -euo pipefail
 # Istio Service Mesh 설치 (Cilium CNI 통합 모드)
 # - mgmt 클러스터: Ingress Gateway + Istiod
 # - app1 클러스터: Full Mesh (Istiod + Gateway + Sidecar)
-# - app2 클러스터: 선택적 (추후 결정)
+# - app2 클러스터: 제거됨
 
 ISTIO_VERSION="${1:-1.29.0}"
 
@@ -41,7 +41,7 @@ fi
 # =============================================================================
 # Istio 설치 대상 클러스터 정의
 # =============================================================================
-# mgmt, app1에만 설치 (app2는 선택적)
+# mgmt, app1에 설치
 ISTIO_CLUSTERS="mgmt app1"
 
 for CLUSTER in ${ISTIO_CLUSTERS}; do
@@ -193,13 +193,6 @@ EOF
   # =============================================================================
   echo "[3/4] Verifying Istio installation..."
 
-  if ! istioctl verify-install \
-    --context "${CONTEXT}" \
-    --kubeconfig "${KUBECONFIG_MULTI}"; then
-    echo "WARNING: Istio verification failed, but installation may have succeeded"
-    echo "Check manually: istioctl verify-install --context ${CONTEXT}"
-  fi
-
   # Pod 상태 확인 (타임아웃 증가)
   echo "Waiting for istiod deployment..."
   if ! $(get_kubectl_cmd "${CLUSTER}") \
@@ -221,7 +214,9 @@ EOF
   # =============================================================================
   echo "[4/4] Creating Prometheus ServiceMonitor for Istio..."
 
-  $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
+  # ServiceMonitor CRD는 mgmt 클러스터에만 존재 (prometheus-stack 설치 클러스터)
+  if $(get_kubectl_cmd "${CLUSTER}") get crd servicemonitors.monitoring.coreos.com &>/dev/null; then
+    $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -252,6 +247,9 @@ spec:
   - port: http-monitoring
     interval: 30s
 EOF
+  else
+    echo "  ServiceMonitor CRD not found on ${CLUSTER}, skipping (Prometheus not installed here)"
+  fi
 
   echo "=== Istio installed successfully on ${CLUSTER} ==="
 done
