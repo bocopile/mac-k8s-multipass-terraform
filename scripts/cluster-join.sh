@@ -23,9 +23,14 @@ for WORKER_NODE in "$@"; do
   # Wait for node to be ready
   wait_for_node_ready "${WORKER_NODE}"
 
-  # join 스크립트 전송 및 실행
-  multipass transfer "${JOIN_SCRIPT}" "${WORKER_NODE}":/home/ubuntu/join.sh
-  multipass exec "${WORKER_NODE}" -- bash -c "chmod +x /home/ubuntu/join.sh && sudo bash /home/ubuntu/join.sh"
+  # 이미 join된 노드는 스킵
+  if multipass exec "${WORKER_NODE}" -- test -f /etc/kubernetes/kubelet.conf 2>/dev/null; then
+    log_info "[${CLUSTER_NAME}] ${WORKER_NODE} already joined, skipping"
+  else
+    # join 스크립트 전송 및 실행
+    multipass transfer "${JOIN_SCRIPT}" "${WORKER_NODE}":/home/ubuntu/join.sh
+    multipass exec "${WORKER_NODE}" -- bash -c "chmod +x /home/ubuntu/join.sh && sudo bash /home/ubuntu/join.sh"
+  fi
 
   log_info "[${CLUSTER_NAME}] ${WORKER_NODE} joined ✓"
 done

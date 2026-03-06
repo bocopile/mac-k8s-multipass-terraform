@@ -647,7 +647,64 @@ ls -la generated/azure-infra-key.pem
 ssh -v -i generated/azure-infra-key.pem azureuser@$(cat generated/harbor-ip)
 ```
 
-### 10.8 tofu destroy 시 Azure 삭제 스킵됨
+### 10.8 Multipass 소켓 연결 실패
+
+```
+exec failed: cannot connect to the multipass socket
+E0000 ssl_transport_security.cc:807] Invalid private key.
+```
+
+Multipass 데몬 또는 클라이언트 SSL 인증서 문제입니다.
+
+**1단계: 데몬 재시작**
+
+```bash
+sudo launchctl kickstart -k system/com.canonical.multipassd
+```
+
+**2단계: 여전히 안 되면 클라이언트 인증서 재생성**
+
+```bash
+# 기존 인증서 백업 후 삭제
+CERT_DIR=~/Library/Application\ Support/multipass-client-certificate
+cp "$CERT_DIR/multipass_cert.pem" "$CERT_DIR/multipass_cert.pem.bak"
+cp "$CERT_DIR/multipass_cert_key.pem" "$CERT_DIR/multipass_cert_key.pem.bak"
+rm "$CERT_DIR/multipass_cert.pem" "$CERT_DIR/multipass_cert_key.pem"
+
+# multipass 명령 실행 시 인증서 자동 재생성됨
+multipass list
+```
+
+**3단계: 인증 요구 시**
+
+```
+The client is not authenticated with the Multipass service.
+```
+
+```bash
+# passphrase 설정 (sudo 필요)
+sudo multipass set local.passphrase
+
+# 클라이언트 인증
+multipass authenticate
+```
+
+**4단계: 위 방법 모두 실패 시 Multipass 완전 재설치**
+
+```bash
+# 기존 VM 데이터 보존하며 재설치
+brew reinstall multipass
+
+# 또는 완전 제거 후 재설치 (VM 데이터 삭제됨)
+brew uninstall multipass
+sudo rm -rf "/Library/Application Support/com.canonical.multipass"
+rm -rf ~/Library/Application\ Support/multipass-client-certificate
+brew install multipass
+```
+
+> **참고**: Multipass 1.16.x에서 macOS 업데이트 후 SSL 키 불일치가 발생하는 알려진 이슈가 있습니다. 대부분 2단계(인증서 재생성)로 해결됩니다.
+
+### 10.9 tofu destroy 시 Azure 삭제 스킵됨
 
 ```
 === Azure Infra: state/tfvars 없음 → 스킵 ===

@@ -35,7 +35,7 @@ for CLUSTER in ${CLUSTERS}; do
   $(get_helm_cmd "${CLUSTER}") upgrade --install falco falcosecurity/falco \
     --version "${FALCO_VERSION}" \
     --namespace "${NAMESPACE_SECURITY}" \
-    --set driver.kind=ebpf \
+    --set driver.kind=modern_ebpf \
     --set tty=true \
     --set falco.grpc.enabled=true \
     --set falco.grpcOutput.enabled=true \
@@ -43,7 +43,7 @@ for CLUSTER in ${CLUSTERS}; do
     --set falco.httpOutput.enabled=false \
     --set falcosidekick.enabled=true \
     --set falcosidekick.config.prometheus.enabled=true \
-    --set serviceMonitor.enabled=true \
+    --set serviceMonitor.enabled=false \
     --set resources.requests.cpu=200m \
     --set resources.requests.memory=256Mi \
     --set resources.limits.cpu=500m \

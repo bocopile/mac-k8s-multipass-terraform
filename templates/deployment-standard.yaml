@@ -1,0 +1,289 @@
+# =============================================================================
+# Deployment Standard Template (ARCHITECTURE.md §14 참조)
+# =============================================================================
+# 사용법:
+#   APP_NAME=my-app APP_VERSION=v1 APP_IMAGE=my-app:v1 APP_PORT=8080 APP_NAMESPACE=default \
+#     envsubst < templates/deployment-standard.yaml | kubectl apply -f -
+#
+# 플레이스홀더:
+#   ${APP_NAME}       - 애플리케이션 이름
+#   ${APP_VERSION}    - 애플리케이션 버전 (v1, v2, ...)
+#   ${APP_IMAGE}      - 컨테이너 이미지 (registry/image:tag)
+#   ${APP_PORT}       - 컨테이너 포트 번호
+#   ${APP_NAMESPACE}  - 배포 대상 네임스페이스
+# =============================================================================
+
+---
+# 1. Deployment (Rolling Update, Small Tier 기본)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    version: ${APP_VERSION}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 300
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: ${APP_NAME}
+  template:
+    metadata:
+      labels:
+        app: ${APP_NAME}
+        version: ${APP_VERSION}
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: ${APP_NAME}
+      containers:
+        - name: ${APP_NAME}
+          image: ${APP_IMAGE}
+          ports:
+            - name: http
+              containerPort: ${APP_PORT}
+              protocol: TCP
+          # --- Resources (Small Tier) ---
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          # --- Probes ---
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            failureThreshold: 3
+          # --- Security ---
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # --- Graceful Shutdown ---
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+---
+# 2. PodDisruptionBudget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ${APP_NAME}
+
+---
+# 3. Service (ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${APP_NAME}
+
+---
+# 4. HPA (target CPU 70%, §14.5 참조)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ${APP_NAME}
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 30
+
+# =============================================================================
+# 5. ServiceMonitor (Prometheus 메트릭 수집)
+#    Prometheus Agent가 앱 메트릭을 스크랩하도록 설정합니다.
+#    /metrics 엔드포인트가 있는 앱에서 주석을 해제하세요.
+# =============================================================================
+#
+# ---
+# apiVersion: monitoring.coreos.com/v1
+# kind: ServiceMonitor
+# metadata:
+#   name: ${APP_NAME}
+#   namespace: ${APP_NAMESPACE}
+#   labels:
+#     app: ${APP_NAME}
+# spec:
+#   selector:
+#     matchLabels:
+#       app: ${APP_NAME}
+#   endpoints:
+#     - port: http
+#       path: /metrics
+#       interval: 30s
+
+# =============================================================================
+# 6. KEDA ScaledObject (Prometheus 기반 오토스케일링)
+#    HPA 대신 KEDA를 사용하려면 위의 HPA(섹션 4)를 삭제하고
+#    아래 주석을 해제하세요. KEDA Operator가 클러스터에 설치되어 있어야 합니다.
+#    §15.4 수용량 제약을 고려하여 maxReplicaCount를 설정하세요.
+# =============================================================================
+#
+# ---
+# apiVersion: keda.sh/v1alpha1
+# kind: ScaledObject
+# metadata:
+#   name: ${APP_NAME}
+#   namespace: ${APP_NAMESPACE}
+#   labels:
+#     app: ${APP_NAME}
+# spec:
+#   scaleTargetRef:
+#     name: ${APP_NAME}
+#   minReplicaCount: 2
+#   maxReplicaCount: 4                     # §15.4 수용량 한도 내에서 설정
+#   cooldownPeriod: 300                    # 5분 - 급격한 스케일다운 방지
+#   pollingInterval: 30                    # 30초 메트릭 확인 주기
+#   triggers:
+#     # --- Prometheus 메트릭 기반 스케일링 ---
+#     - type: prometheus
+#       metadata:
+#         serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
+#         query: |
+#           sum(rate(http_requests_total{deployment="${APP_NAME}"}[2m]))
+#         threshold: "100"                 # 초당 100 요청 기준
+#         activationThreshold: "5"         # 최소 트리거 임계값
+#     # --- CPU 기반 스케일링 (보조) ---
+#     - type: cpu
+#       metricType: Utilization
+#       metadata:
+#         value: "70"
+#     # --- Memory 기반 스케일링 (보조) ---
+#     - type: memory
+#       metricType: Utilization
+#       metadata:
+#         value: "80"
+
+# =============================================================================
+# 7. Canary 리소스 (app1 전용, Istio 필요)
+#    app1에서 Canary 배포 시 아래 주석을 해제하세요.
+# =============================================================================
+#
+# ---
+# # DestinationRule - subset 정의
+# apiVersion: networking.istio.io/v1
+# kind: DestinationRule
+# metadata:
+#   name: ${APP_NAME}
+#   namespace: ${APP_NAMESPACE}
+# spec:
+#   host: ${APP_NAME}
+#   subsets:
+#     - name: stable
+#       labels:
+#         version: ${APP_VERSION}
+#     - name: canary
+#       labels:
+#         version: canary
+#
+# ---
+# # VirtualService - 트래픽 분할
+# apiVersion: networking.istio.io/v1
+# kind: VirtualService
+# metadata:
+#   name: ${APP_NAME}
+#   namespace: ${APP_NAMESPACE}
+# spec:
+#   hosts:
+#     - ${APP_NAME}
+#   http:
+#     - route:
+#         - destination:
+#             host: ${APP_NAME}
+#             subset: stable
+#           weight: 90
+#         - destination:
+#             host: ${APP_NAME}
+#             subset: canary
+#           weight: 10

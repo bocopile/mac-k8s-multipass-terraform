@@ -30,8 +30,7 @@ for CLUSTER in ${CLUSTERS}; do
     --version "${CERT_MANAGER_VERSION}" \
     --namespace cert-manager --create-namespace \
     --set crds.enabled=true \
-    --set prometheus.enabled=true \
-    --set prometheus.servicemonitor.enabled=true \
+    --set prometheus.enabled=false \
     --set resources.requests.cpu=50m \
     --set resources.requests.memory=64Mi \
     --set resources.limits.cpu=100m \
@@ -44,9 +43,7 @@ for CLUSTER in ${CLUSTERS}; do
     --set cainjector.resources.requests.memory=32Mi \
     --set cainjector.resources.limits.cpu=50m \
     --set cainjector.resources.limits.memory=64Mi \
-    --set priorityClassName=platform-critical \
-    --set webhook.priorityClassName=platform-critical \
-    --set cainjector.priorityClassName=platform-critical \
+    --set global.priorityClassName=platform-critical \
     --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   wait_for_deployment "cert-manager" "cert-manager-webhook" "${TIMEOUT_POD_READY}" "${CONTEXT}"

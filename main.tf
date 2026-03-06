@@ -124,7 +124,24 @@ resource "null_resource" "merge_kubeconfigs" {
   }
 }
 
+# =============================================================================
+# Addon 전체 설치 (Phase 2 자동 실행)
+# =============================================================================
+resource "null_resource" "install_addons" {
+  depends_on = [null_resource.merge_kubeconfigs, local_file.cluster_config]
 
+  triggers = {
+    merge_id      = null_resource.merge_kubeconfigs.id
+    clusters_hash = md5(local.clusters_json)
+  }
+
+  provisioner "local-exec" {
+    command = "export PATH=/opt/homebrew/bin:$PATH && bash ${path.module}/addons/install.sh --all --yes"
+  }
+}
+
+
+/*  COMMENTED OUT — Azure Infra 연동 (별도 적용 시 주석 해제)
 # =============================================================================
 # Azure Infra 연동 삭제 (tofu destroy 시 azure-infra도 함께 삭제)
 # =============================================================================
@@ -163,6 +180,7 @@ resource "null_resource" "destroy_azure_infra" {
     EOT
   }
 }
+*/
 
 # =============================================================================
 # Cleanup fallback (개별 VM destroy provisioner 실패 시 안전망)

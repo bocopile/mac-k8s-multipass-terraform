@@ -37,7 +37,16 @@ if ! command -v cilium &>/dev/null; then
     error_exit "Cilium CLI checksum verification failed"
   fi
 
-  sudo tar xzvfC "cilium-darwin-${CLI_ARCH}.tar.gz" /usr/local/bin
+  # sudo 없이 설치 (homebrew bin 또는 /usr/local/bin 시도)
+  INSTALL_DIR="/opt/homebrew/bin"
+  if [[ ! -d "${INSTALL_DIR}" ]]; then
+    INSTALL_DIR="/usr/local/bin"
+  fi
+  if [[ -w "${INSTALL_DIR}" ]]; then
+    tar xzvfC "cilium-darwin-${CLI_ARCH}.tar.gz" "${INSTALL_DIR}"
+  else
+    sudo tar xzvfC "cilium-darwin-${CLI_ARCH}.tar.gz" "${INSTALL_DIR}"
+  fi
   rm -f "cilium-darwin-${CLI_ARCH}.tar.gz" "cilium-darwin-${CLI_ARCH}.tar.gz.sha256sum"
 fi
 

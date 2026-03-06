@@ -53,7 +53,7 @@ setup_common_vars() {
   validate_prerequisites
 
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  GENERATED_DIR="${SCRIPT_DIR}/../generated"
+  GENERATED_DIR="${SCRIPT_DIR}/../../generated"
   KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
   CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 
@@ -158,6 +158,16 @@ ensure_namespace() {
   log_info "Ensuring namespace exists: ${namespace}"
   kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${context}" \
     create namespace "${namespace}" 2>/dev/null || true
+
+  # 자동으로 privileged PSA 적용 (필요한 namespace)
+  if is_privileged_namespace "${namespace}"; then
+    kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${context}" \
+      label namespace "${namespace}" \
+      pod-security.kubernetes.io/enforce=privileged \
+      pod-security.kubernetes.io/audit=privileged \
+      pod-security.kubernetes.io/warn=privileged \
+      --overwrite 2>/dev/null || true
+  fi
 }
 
 # Ensure namespace exists with privileged PSA
@@ -180,6 +190,21 @@ ensure_namespace_privileged() {
 # Wait for cloud-init and verify node readiness
 wait_for_node_ready() {
   local node_name="$1"
+  local max_retries=30
+  local retry_interval=10
+
+  # VM SSH 연결 가능할 때까지 대기
+  log_info "Waiting for VM ${node_name} to become reachable..."
+  local attempt=0
+  while ! multipass exec "${node_name}" -- true 2>/dev/null; do
+    attempt=$((attempt + 1))
+    if [[ ${attempt} -ge ${max_retries} ]]; then
+      error_exit "VM ${node_name} not reachable after $((max_retries * retry_interval))s"
+    fi
+    log_info "VM ${node_name} not ready yet, retrying... (${attempt}/${max_retries})"
+    sleep ${retry_interval}
+  done
+  log_info "VM ${node_name} is reachable (after ${attempt} retries)"
 
   log_info "Waiting for cloud-init to complete on ${node_name}..."
   multipass exec "${node_name}" -- bash -c "cloud-init status --wait"

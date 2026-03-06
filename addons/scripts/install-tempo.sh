@@ -7,7 +7,7 @@ set -euo pipefail
 # - local-path-retain StorageClass 사용
 # - Grafana 데이터소스 자동 구성
 
-TEMPO_VERSION="${1:-2.6.1}"
+TEMPO_VERSION="${1:-1.24.4}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -37,7 +37,6 @@ $(get_helm_cmd mgmt) upgrade --install tempo grafana/tempo \
   --version "${TEMPO_VERSION}" \
   --namespace "${NAMESPACE_OBSERVABILITY}" \
   --set tempo.repository=grafana/tempo \
-  --set tempo.tag="${TEMPO_VERSION}" \
   --set tempo.metricsGenerator.enabled=true \
   --set tempo.metricsGenerator.remoteWriteUrl="http://kube-prometheus-stack-prometheus.${NAMESPACE_MONITORING}.svc:9090/api/v1/write" \
   --set persistence.enabled=true \

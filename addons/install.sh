@@ -9,7 +9,7 @@ ADDON_SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
 
 # Addon 카테고리 정의
 declare -A CATEGORIES
-CATEGORIES[infrastructure]="priority-classes cilium tetragon metallb gateway-api cert-manager clustermesh"
+CATEGORIES[infrastructure]="priority-classes local-path-provisioner cilium tetragon metallb gateway-api cert-manager clustermesh"
 CATEGORIES[secrets]="vault vault-pki eso"
 CATEGORIES[gitops]="argocd"
 CATEGORIES[observability]="thanos prometheus-stack loki tempo opensearch alloy"
@@ -23,6 +23,7 @@ set -u
 # Addon 설치 순서 (의존성 기반)
 INSTALL_ORDER=(
     "priority-classes"
+    "local-path-provisioner"
     "cilium"
     "tetragon"
     "metallb"

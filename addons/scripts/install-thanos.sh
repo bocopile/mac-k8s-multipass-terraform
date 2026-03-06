@@ -48,6 +48,11 @@ log_info "Installing Thanos on mgmt cluster"
 
 $(get_helm_cmd mgmt) upgrade --install thanos bitnami/thanos \
   --namespace "${NAMESPACE_OBSERVABILITY}" \
+  --set global.security.allowInsecureImages=true \
+  --set image.registry=quay.io \
+  --set image.repository=thanos/thanos \
+  --set image.tag=v0.37.2 \
+  --set volumePermissions.enabled=false \
   --set receive.enabled=true \
   --set receive.replicaCount=1 \
   --set receive.persistence.enabled=true \
@@ -55,7 +60,7 @@ $(get_helm_cmd mgmt) upgrade --install thanos bitnami/thanos \
   --set receive.persistence.size=20Gi \
   --set receive.service.type=LoadBalancer \
   --set receive.tsdbRetention=15d \
-  --set receive.objstoreConfig=thanos-objstore-config \
+  --set existingObjstoreSecret=thanos-objstore-config \
   --set receive.resources.requests.cpu=100m \
   --set receive.resources.requests.memory=256Mi \
   --set receive.resources.limits.cpu=500m \
@@ -90,7 +95,6 @@ $(get_helm_cmd mgmt) upgrade --install thanos bitnami/thanos \
   --set compactor.persistence.enabled=true \
   --set compactor.persistence.storageClass=local-path \
   --set compactor.persistence.size=10Gi \
-  --set compactor.objstoreConfig=thanos-objstore-config \
   --set compactor.resources.requests.cpu=100m \
   --set compactor.resources.requests.memory=256Mi \
   --set compactor.resources.limits.cpu=500m \
@@ -99,7 +103,6 @@ $(get_helm_cmd mgmt) upgrade --install thanos bitnami/thanos \
   --set ruler.enabled=false \
   --set metrics.enabled=true \
   --set metrics.serviceMonitor.enabled=true \
-  --set objstoreConfig=thanos-objstore-config \
   --wait --timeout 300s
 
 log_info "Waiting for Thanos Receive..."

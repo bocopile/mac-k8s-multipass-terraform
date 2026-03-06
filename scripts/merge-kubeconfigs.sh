@@ -6,18 +6,23 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Load libraries
 source "${SCRIPT_DIR}/lib/common.sh"
 
-# Setup
-setup_common_vars
+# Setup (setup_common_vars는 kubeconfig-multi 존재를 요구하므로 직접 초기화)
+validate_prerequisites
 
-OUTPUT="${GENERATED_DIR}/kubeconfig-multi"
+GENERATED_DIR="${SCRIPT_DIR}/../generated"
+KUBECONFIG_MULTI="${GENERATED_DIR}/kubeconfig-multi"
+CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
+require_file "${CLUSTERS_JSON}"
+
+OUTPUT="${KUBECONFIG_MULTI}"
 
 log_info "Merging kubeconfigs"
 
-# clusters.json에서 클러스터 목록 읽기
-mapfile -t CLUSTERS < <(jq -r 'keys[]' "${CLUSTERS_JSON}")
-KUBECONFIG_PATHS=()
+# clusters.json에서 클러스터 목록 읽기 (bash 3.2 호환)
+CLUSTERS=$(jq -r 'keys[]' "${CLUSTERS_JSON}")
+KUBECONFIG_PATHS=""
 
-for CLUSTER in "${CLUSTERS[@]}"; do
+for CLUSTER in ${CLUSTERS}; do
   SRC="${GENERATED_DIR}/kubeconfig-${CLUSTER}"
 
   require_file "${SRC}"
@@ -46,19 +51,20 @@ for CLUSTER in "${CLUSTERS[@]}"; do
 
   kubectl --kubeconfig="${SRC}" config use-context "kubernetes-admin@${CLUSTER}"
 
-  KUBECONFIG_PATHS+=("${SRC}")
+  if [ -n "${KUBECONFIG_PATHS}" ]; then
+    KUBECONFIG_PATHS="${KUBECONFIG_PATHS}:${SRC}"
+  else
+    KUBECONFIG_PATHS="${SRC}"
+  fi
   log_info "Prepared kubeconfig for ${CLUSTER}"
 done
 
 # N개 kubeconfig 병합 (동적 경로)
-log_info "Merging ${#CLUSTERS[@]} kubeconfigs..."
-KUBECONFIG_MERGED=$(IFS=:; echo "${KUBECONFIG_PATHS[*]}")
-export KUBECONFIG="${KUBECONFIG_MERGED}"
-kubectl config view --flatten > "${OUTPUT}"
-unset KUBECONFIG
+log_info "Merging kubeconfigs..."
+KUBECONFIG="${KUBECONFIG_PATHS}" kubectl config view --flatten > "${OUTPUT}"
 
 # 기본 컨텍스트를 첫 번째 클러스터로 설정
-FIRST_CLUSTER="${CLUSTERS[0]}"
+FIRST_CLUSTER=$(jq -r 'keys[0]' "${CLUSTERS_JSON}")
 kubectl --kubeconfig="${OUTPUT}" config use-context "kubernetes-admin@${FIRST_CLUSTER}"
 
 # 홈 디렉토리에도 복사

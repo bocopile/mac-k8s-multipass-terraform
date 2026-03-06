@@ -55,7 +55,8 @@ $(get_helm_cmd mgmt) upgrade --install opensearch opensearch/opensearch \
   --set persistence.size=10Gi \
   --set persistence.storageClass=local-path-retain \
   --set service.type=ClusterIP \
-  --set "config.opensearch\\.yml=cluster.name: mgmt-logs\nnetwork.host: 0.0.0.0\ndiscovery.type: single-node\nplugins.security.disabled: true\n" \
+  --set "securityConfig.enabled=false" \
+  --set "plugins.security.disabled=true" \
   --set priorityClassName=platform-normal \
   --wait --timeout 300s
 

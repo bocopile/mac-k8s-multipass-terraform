@@ -46,8 +46,7 @@ for CLUSTER in ${CLUSTERS}; do
     --version "${ESO_VERSION}" \
     --namespace "${NAMESPACE_SECURITY}" \
     --set installCRDs=true \
-    --set prometheus.enabled=true \
-    --set serviceMonitor.enabled=true \
+    --set prometheus.enabled=false \
     --set priorityClassName=platform-normal \
     --set webhook.priorityClassName=platform-normal \
     --set certController.priorityClassName=platform-normal \
@@ -83,9 +82,7 @@ spec:
           name: "vault-token"
           namespace: "external-secrets"
           key: "token"
-  conditions:
-    - type: Ready
-  refreshInterval: 1h
+  refreshInterval: 3600
 EOF
 
   echo "=== ESO installed on ${CLUSTER} ==="

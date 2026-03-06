@@ -86,8 +86,10 @@ aws_secret_access_key=${MINIO_ROOT_PASSWORD}
     --set initContainers[0].image=velero/velero-plugin-for-aws:v1.11.0 \
     --set initContainers[0].volumeMounts[0].mountPath=/target \
     --set initContainers[0].volumeMounts[0].name=plugins \
+    --set kubectl.image.repository=docker.io/alpine/k8s \
+    --set kubectl.image.tag=1.35.2 \
     --set metrics.enabled=true \
-    --set metrics.serviceMonitor.enabled=true \
+    --set metrics.serviceMonitor.enabled=false \
     --set priorityClassName=platform-normal \
     --wait --timeout 180s
 

@@ -20,33 +20,35 @@ load_credentials || true
 get_minio_credentials > /dev/null
 source "${CREDENTIALS_FILE}"
 
-# Helm repo 추가
-add_helm_repo "bitnami" "${HELM_REPO_BITNAMI}"
+# Helm repo 추가 (공식 MinIO chart)
+add_helm_repo "minio-official" "https://charts.min.io/"
 
 log_info "Installing MinIO on mgmt cluster (Demo Environment)"
-
-# Demo Environment Configuration:
-# - Storage: 15Gi (down from 50Gi, 70% reduction)
-# - Memory: 128Mi-256Mi (down from 256Mi-512Mi, 50% reduction)
-# - CPU: 50m-250m (down from 100m-500m, 50% reduction)
-# - Optimized for Mac M1 Max (10-core, 64GB RAM)
 
 # Ensure namespace exists
 ensure_namespace "${NAMESPACE_BACKUP}" "mgmt"
 
-# Install MinIO
-$(get_helm_cmd mgmt) upgrade --install minio bitnami/minio \
+# Install MinIO (minio-official chart v5.4.0)
+$(get_helm_cmd mgmt) upgrade --install minio minio-official/minio \
+  --version 5.4.0 \
   --namespace "${NAMESPACE_BACKUP}" \
-  --set auth.rootUser="${MINIO_ROOT_USER}" \
-  --set auth.rootPassword="${MINIO_ROOT_PASSWORD}" \
+  --set rootUser="${MINIO_ROOT_USER}" \
+  --set rootPassword="${MINIO_ROOT_PASSWORD}" \
   --set mode=standalone \
+  --set replicas=1 \
   --set persistence.enabled=true \
   --set persistence.storageClass="${STORAGE_CLASS_DEFAULT}" \
   --set persistence.size=15Gi \
   --set service.type=LoadBalancer \
-  --set service.ports.api=9000 \
-  --set service.ports.console=9001 \
-  --set defaultBuckets="velero-backups,thanos,loki-logs,tempo-traces" \
+  --set consoleService.type=ClusterIP \
+  --set "buckets[0].name=velero-backups" \
+  --set "buckets[0].policy=none" \
+  --set "buckets[1].name=thanos" \
+  --set "buckets[1].policy=none" \
+  --set "buckets[2].name=loki-logs" \
+  --set "buckets[2].policy=none" \
+  --set "buckets[3].name=tempo-traces" \
+  --set "buckets[3].policy=none" \
   --set resources.requests.memory="${RESOURCES_MEDIUM_REQUESTS_MEMORY}" \
   --set resources.requests.cpu="${RESOURCES_SMALL_REQUESTS_CPU}" \
   --set resources.limits.memory="${RESOURCES_MEDIUM_LIMITS_MEMORY}" \

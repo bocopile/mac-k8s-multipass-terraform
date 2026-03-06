@@ -137,7 +137,8 @@ readonly METALLB_VERSION_DEFAULT="0.15.3"
 is_privileged_namespace() {
   local namespace="$1"
   case "${namespace}" in
-    "${NAMESPACE_KUBE_SYSTEM}"|"${NAMESPACE_CILIUM}"|"${NAMESPACE_MONITORING}"|"${NAMESPACE_VAULT}")
+    "${NAMESPACE_KUBE_SYSTEM}"|"${NAMESPACE_CILIUM}"|"${NAMESPACE_MONITORING}"|"${NAMESPACE_VAULT}"|\
+    "${NAMESPACE_BACKUP}"|"${NAMESPACE_SECURITY}"|"local-path-storage")
       return 0
       ;;
     *)
