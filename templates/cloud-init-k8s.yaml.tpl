@@ -27,6 +27,8 @@ write_files:
       net.bridge.bridge-nf-call-iptables = 1
       net.ipv4.ip_forward = 1
       net.bridge.bridge-nf-call-ip6tables = 1
+      fs.inotify.max_user_instances = 512
+      fs.inotify.max_user_watches = 524288
 
 %{ if role == "control-plane" ~}
   - path: /etc/kubernetes/psa/admission-config.yaml
@@ -71,6 +73,19 @@ write_files:
             hostPath: /etc/kubernetes/psa
             mountPath: /etc/kubernetes/psa
             readOnly: true
+      controllerManager:
+        extraArgs:
+          - name: bind-address
+            value: "0.0.0.0"
+      scheduler:
+        extraArgs:
+          - name: bind-address
+            value: "0.0.0.0"
+      etcd:
+        local:
+          extraArgs:
+            - name: listen-metrics-urls
+              value: "http://0.0.0.0:2381"
       ---
       apiVersion: kubeadm.k8s.io/v1beta4
       kind: InitConfiguration
