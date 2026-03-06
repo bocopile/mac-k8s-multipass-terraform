@@ -110,7 +110,8 @@ $(get_helm_cmd mgmt) upgrade --install thanos bitnami/thanos \
 
 log_info "Waiting for Thanos Receive..."
 $(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" wait deploy/thanos-receive \
-  --for=condition=available --timeout=180s || true
+  --for=condition=available --timeout=180s \
+  || log_warn "Thanos Receive not ready within 180s (will retry LB IP check)"
 
 # Thanos Receive의 LoadBalancer IP 확인
 THANOS_RECEIVE_IP=""

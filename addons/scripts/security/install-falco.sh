@@ -52,7 +52,8 @@ for CLUSTER in ${CLUSTERS}; do
     --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
 
   # DaemonSet 준비 대기
-  $(get_kubectl_cmd "${CLUSTER}") -n "${NAMESPACE_SECURITY}" rollout status daemonset/falco --timeout="${TIMEOUT_POD_READY}s" || true
+  $(get_kubectl_cmd "${CLUSTER}") -n "${NAMESPACE_SECURITY}" rollout status daemonset/falco --timeout="${TIMEOUT_POD_READY}s" \
+    || log_warn "Falco DaemonSet rollout not complete on ${CLUSTER} (may still be starting)"
 
   echo "=== Falco installed on ${CLUSTER} ==="
 done

@@ -67,7 +67,8 @@ echo ""
 echo "=== Initializing Vault ==="
 
 # Vault pod가 Running 상태가 될 때까지 대기
-$(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" wait --for=condition=Ready pod/vault-0 --timeout=120s 2>/dev/null || true
+$(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" wait --for=condition=Ready pod/vault-0 --timeout=120s 2>/dev/null \
+  || log_warn "Vault pod not Ready within 120s (initialization may fail)"
 
 # 초기화 상태 확인
 INIT_STATUS=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_VAULT}" exec vault-0 -- vault status -format=json 2>/dev/null | jq -r '.initialized' || echo "false")

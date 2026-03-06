@@ -251,7 +251,7 @@ resource "null_resource" "addons_gateway" {
   provisioner "local-exec" {
     command = <<-EOT
       export PATH=/opt/homebrew/bin:$PATH
-      bash ${path.module}/scripts/apply-bocopile-gateway.sh || true
+      bash ${path.module}/scripts/apply-bocopile-gateway.sh || echo "WARNING: Gateway apply failed (Istio may not be ready yet)"
     EOT
   }
 }

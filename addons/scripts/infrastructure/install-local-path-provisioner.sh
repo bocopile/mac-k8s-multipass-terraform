@@ -33,7 +33,8 @@ for CLUSTER in ${CLUSTERS}; do
   # 배포 대기
   kubectl --kubeconfig "${KUBECONFIG_MULTI}" --context "${CONTEXT}" \
     -n local-path-storage wait deployment/local-path-provisioner \
-    --for=condition=available --timeout="${TIMEOUT_POD_READY}s" || true
+    --for=condition=available --timeout="${TIMEOUT_POD_READY}s" \
+    || log_warn "local-path-provisioner not ready within ${TIMEOUT_POD_READY}s on ${CLUSTER}"
 
   log_info "local-path-provisioner installed on ${CLUSTER}"
 done

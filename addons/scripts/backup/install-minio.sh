@@ -16,7 +16,7 @@ setup_common_vars
 
 # Initialize and get MinIO credentials
 init_credentials
-load_credentials || true
+load_credentials || log_warn "Credentials file not found, will generate new MinIO credentials"
 get_minio_credentials > /dev/null
 source "${CREDENTIALS_FILE}"
 

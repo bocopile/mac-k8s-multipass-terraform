@@ -33,7 +33,8 @@ for CLUSTER in ${CLUSTERS}; do
   # MetalLB speaker가 준비될 때까지 대기
   $(get_kubectl_cmd "${CLUSTER}") \
     -n metallb-system wait pod -l component=speaker \
-    --for=condition=ready --timeout="${TIMEOUT_POD_READY}s" || true
+    --for=condition=ready --timeout="${TIMEOUT_POD_READY}s" \
+    || log_warn "MetalLB speaker pods not ready within ${TIMEOUT_POD_READY}s on ${CLUSTER}"
 
   # webhook이 준비될 때까지 대기
   log_info "Waiting for MetalLB webhook to be ready..."

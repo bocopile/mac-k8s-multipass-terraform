@@ -145,7 +145,7 @@ if command -v argocd &>/dev/null && [[ -n "${ARGOCD_PASSWORD}" && "${ARGOCD_PASS
       --yes 2>/dev/null || log_warn "app2 registration skipped or already registered"
 
     log_info "Listing registered clusters..."
-    argocd cluster list || true
+    argocd cluster list || log_warn "Failed to list ArgoCD clusters"
   fi
 else
   echo "NOTE: ArgoCD CLI not available or password not found."

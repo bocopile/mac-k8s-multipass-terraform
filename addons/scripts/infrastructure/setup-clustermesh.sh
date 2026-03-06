@@ -25,7 +25,8 @@ for CLUSTER in "${CLUSTERS[@]}"; do
   echo "Waiting for Cluster Mesh to be ready on ${CLUSTER}..."
   cilium clustermesh status --wait \
     --context "kubernetes-admin@${CLUSTER}" \
-    --kubeconfig "${KUBECONFIG_MULTI}" || true
+    --kubeconfig "${KUBECONFIG_MULTI}" \
+    || log_warn "Cluster Mesh status check failed on ${CLUSTER} (may still be initializing)"
 done
 
 # Full Mesh 연결: 모든 클러스터 쌍
