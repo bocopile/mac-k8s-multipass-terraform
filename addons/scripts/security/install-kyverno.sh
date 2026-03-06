@@ -42,7 +42,7 @@ for CLUSTER in ${CLUSTERS}; do
     --set backgroundController.priorityClassName=platform-normal \
     --set cleanupController.priorityClassName=platform-normal \
     --set reportsController.priorityClassName=platform-normal \
-    --wait --timeout "${TIMEOUT_DEPLOYMENT}s"
+    --wait --timeout 300s
 
   echo "Waiting for Kyverno admission controller..."
   $(get_kubectl_cmd "${CLUSTER}") -n "${NAMESPACE_SECURITY}" wait deploy/kyverno-admission-controller \
