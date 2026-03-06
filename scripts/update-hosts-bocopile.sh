@@ -51,9 +51,6 @@ DOMAINS=(
   "s3.bocopile.io"
   "tempo.bocopile.io"
   "thanos.bocopile.io"
-  "opencost.bocopile.io"
-  "goldilocks.bocopile.io"
-  "chaos.bocopile.io"
 )
 
 # Add new entries

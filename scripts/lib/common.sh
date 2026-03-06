@@ -116,7 +116,7 @@ wait_for_lb_ip() {
   local timeout="${3:-30}"
   local context="${4:-kubernetes-admin@mgmt}"
 
-  log_info "Waiting for LoadBalancer IP: ${namespace}/${service}"
+  echo "[INFO] Waiting for LoadBalancer IP: ${namespace}/${service}" >&2
 
   local ip=""
   for i in $(seq 1 "$timeout"); do
@@ -129,7 +129,7 @@ wait_for_lb_ip() {
       return 0
     fi
 
-    log_info "Waiting for IP... (${i}/${timeout})"
+    echo "[INFO] Waiting for IP... (${i}/${timeout})" >&2
     sleep 2
   done
 

@@ -251,8 +251,7 @@ HOSTS_COUNT=$(grep -c 'bocopile\.io' /etc/hosts 2>/dev/null || true)
 if [[ "${HOSTS_COUNT}" -gt 0 ]]; then
   pass "/etc/hosts에 ${HOSTS_COUNT}개 bocopile.io 항목 등록됨"
 else
-  info "/etc/hosts에 bocopile.io 미등록 → 도메인 접근이 필요하면 아래 명령어를 실행하세요"
-  echo "         sudo bash scripts/update-hosts-bocopile.sh"
+  info "/etc/hosts에 bocopile.io 미등록 (마지막 안내 참조)"
 fi
 
 # =============================================================================
@@ -511,13 +510,41 @@ echo ""
 if [[ "${FAIL}" -gt 0 ]]; then
   echo "  결과: 일부 검증 실패 (FAIL ${FAIL}건 확인 필요)"
   echo "================================================================="
-  exit 1
-elif [[ "${WARN}" -gt 0 ]] || [[ "${INFO}" -gt 0 ]]; then
-  echo "  결과: 전체 통과 (참고사항 ${WARN} WARN / ${INFO} INFO)"
-  echo "================================================================="
-  exit 0
 else
-  echo "  결과: 전체 검증 통과"
+  if [[ "${WARN}" -gt 0 ]] || [[ "${INFO}" -gt 0 ]]; then
+    echo "  결과: 전체 통과 (참고사항 ${WARN} WARN / ${INFO} INFO)"
+  else
+    echo "  결과: 전체 검증 통과"
+  fi
   echo "================================================================="
+fi
+
+# =============================================================================
+# 다음 단계 안내
+# =============================================================================
+echo ""
+echo "================================================================="
+echo "  다음 단계 안내"
+echo "================================================================="
+echo ""
+echo "  1. /etc/hosts 등록 (도메인으로 대시보드 접근 시 필요)"
+echo "     sudo bash scripts/update-hosts-bocopile.sh"
+echo ""
+echo "  2. Vault unseal (Vault 사용 시 필요)"
+echo "     bash scripts/vault-unseal.sh"
+echo ""
+echo "  3. 대시보드 접근 URL"
+echo "     Grafana:      http://grafana.bocopile.io"
+echo "     ArgoCD:       http://argocd.bocopile.io"
+echo "     Prometheus:   http://prometheus.bocopile.io"
+echo "     Kiali:        http://kiali.bocopile.io"
+echo "     Vault:        http://vault.bocopile.io"
+echo "     MinIO:        http://minio.bocopile.io"
+echo "     Thanos:       http://thanos.bocopile.io"
+echo "================================================================="
+
+if [[ "${FAIL}" -gt 0 ]]; then
+  exit 1
+else
   exit 0
 fi
