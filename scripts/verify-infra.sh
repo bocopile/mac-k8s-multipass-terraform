@@ -33,7 +33,7 @@ pass()  { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
 fail()  { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 warn()  { echo "  [WARN] $1"; WARN=$((WARN + 1)); }
 
-CLUSTERS="mgmt app1 app2"
+CLUSTERS="mgmt app1"
 
 # =============================================================================
 echo ""
@@ -44,10 +44,11 @@ echo "================================================================="
 echo ""
 echo "--- 1-1. Multipass VMs ---"
 VM_RUNNING=$(multipass list 2>/dev/null | grep -c Running || true)
-if [[ "${VM_RUNNING}" -ge 6 ]]; then
+EXPECTED_VMS=4
+if [[ "${VM_RUNNING}" -ge ${EXPECTED_VMS} ]]; then
   pass "All ${VM_RUNNING} VMs Running"
 else
-  fail "Only ${VM_RUNNING}/6 VMs Running"
+  fail "Only ${VM_RUNNING}/${EXPECTED_VMS} VMs Running"
 fi
 
 echo ""
@@ -173,7 +174,7 @@ fi
 # 4-3. Alloy endpoint IP 일치 확인
 echo ""
 echo "--- 4-3. Alloy Endpoint IP Consistency ---"
-for CTX in app1 app2; do
+for CTX in app1; do
   ALLOY_CM=$(kubectl --context "kubernetes-admin@${CTX}" -n observability get cm alloy \
     -o jsonpath='{.data}' 2>/dev/null || true)
 
@@ -301,11 +302,11 @@ d = json.load(sys.stdin)
 print(",".join(d.get("data", [])))
 ' 2>/dev/null || echo "")
 
-  EXPECTED="app1,app2,mgmt"
-  if [[ "${CLUSTER_LIST}" == *"mgmt"* ]] && [[ "${CLUSTER_LIST}" == *"app1"* ]] && [[ "${CLUSTER_LIST}" == *"app2"* ]]; then
+  EXPECTED="app1,mgmt"
+  if [[ "${CLUSTER_LIST}" == *"mgmt"* ]] && [[ "${CLUSTER_LIST}" == *"app1"* ]]; then
     pass "Loki receiving logs from all clusters: ${CLUSTER_LIST}"
   elif [[ -n "${CLUSTER_LIST}" ]]; then
-    warn "Loki receiving logs from: ${CLUSTER_LIST} (expected: mgmt,app1,app2)"
+    warn "Loki receiving logs from: ${CLUSTER_LIST} (expected: mgmt,app1)"
   else
     warn "Loki has no cluster labels"
   fi
@@ -428,7 +429,7 @@ fi
 # 7-3. Kyverno
 echo ""
 echo "--- 7-3. Kyverno ---"
-for CTX in app1 app2; do
+for CTX in app1; do
   KYVERNO=$(kubectl --context "kubernetes-admin@${CTX}" -n security \
     get deploy kyverno-admission-controller --no-headers 2>/dev/null | awk '{print $2}')
   if [[ "${KYVERNO}" == "1/1" ]]; then
@@ -441,7 +442,7 @@ done
 # 7-4. Falco
 echo ""
 echo "--- 7-4. Falco ---"
-for CTX in app1 app2; do
+for CTX in app1; do
   FALCO_DS=$(kubectl --context "kubernetes-admin@${CTX}" -n security \
     get ds falco --no-headers 2>/dev/null || true)
   if [[ -n "${FALCO_DS}" ]]; then

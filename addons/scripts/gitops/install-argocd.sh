@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Usage: install-argocd.sh
-# mgmt 클러스터에 ArgoCD를 설치하고 app1/app2 클러스터를 등록합니다.
-# - mgmt 클러스터에서 3개 클러스터의 GitOps 배포를 중앙 관리
+# mgmt 클러스터에 ArgoCD를 설치하고 app1 클러스터를 등록합니다.
+# - mgmt 클러스터에서 2개 클러스터의 GitOps 배포를 중앙 관리
 # - §1.3 핵심 원칙 "GitOps: ArgoCD 기반 선언적 배포" 구현
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -137,13 +137,6 @@ if command -v argocd &>/dev/null && [[ -n "${ARGOCD_PASSWORD}" && "${ARGOCD_PASS
       --name app1 \
       --yes 2>/dev/null || log_warn "app1 registration skipped or already registered"
 
-    # app2 클러스터 등록
-    log_info "Registering app2 cluster..."
-    argocd cluster add "kubernetes-admin@app2" \
-      --kubeconfig "${KUBECONFIG_MULTI}" \
-      --name app2 \
-      --yes 2>/dev/null || log_warn "app2 registration skipped or already registered"
-
     log_info "Listing registered clusters..."
     argocd cluster list || log_warn "Failed to list ArgoCD clusters"
   fi
@@ -151,7 +144,6 @@ else
   echo "NOTE: ArgoCD CLI not available or password not found."
   echo "  Manual cluster registration required:"
   echo "  argocd cluster add kubernetes-admin@app1 --kubeconfig ${KUBECONFIG_MULTI} --name app1"
-  echo "  argocd cluster add kubernetes-admin@app2 --kubeconfig ${KUBECONFIG_MULTI} --name app2"
 fi
 
 # 포트포워드 종료

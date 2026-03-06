@@ -18,7 +18,7 @@ CLUSTERS_JSON="${GENERATED_DIR}/clusters.json"
 if [[ -f "${CLUSTERS_JSON}" ]]; then
   mapfile -t ALL_CONTEXTS < <(jq -r 'keys[] | "kubernetes-admin@\(.)"' "${CLUSTERS_JSON}")
 else
-  ALL_CONTEXTS=("kubernetes-admin@mgmt" "kubernetes-admin@app1" "kubernetes-admin@app2")
+  ALL_CONTEXTS=("kubernetes-admin@mgmt" "kubernetes-admin@app1")
 fi
 
 # Addon별 네임스페이스 및 리소스 정의

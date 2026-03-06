@@ -15,9 +15,9 @@ locals {
         }
         "mgmt-worker-0" = {
           role = "worker"
-          mem  = "10G"  # Increased from 8G to 10G for full addon stack (~8.2GB required)
+          mem  = "12G"
           disk = "60G"
-          cpus = 3      # Increased from 2 to 3 for addon stack CPU headroom
+          cpus = 4
         }
       }
     }
@@ -42,27 +42,7 @@ locals {
         }
       }
     }
-    app2 = {
-      name         = "app2"
-      id           = 3
-      pod_cidr     = "10.102.0.0/16"
-      service_cidr = "10.98.0.0/16"
-      metallb_pool = "192.168.64.221-192.168.64.230"
-      nodes = {
-        "app2-cp" = {
-          role = "control-plane"
-          mem  = "3G"
-          disk = "30G"
-          cpus = 2
-        }
-        "app2-worker-0" = {
-          role = "worker"
-          mem  = "4G"
-          disk = "40G"
-          cpus = 2
-        }
-      }
-    }
+    # app2 클러스터 제거 — 리소스 절약 (4CPU/7GB → mgmt에 재분배)
   }
 
   # Flatten all nodes with cluster context

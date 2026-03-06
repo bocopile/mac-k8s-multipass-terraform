@@ -165,7 +165,7 @@ verify_contracts() {
     # C2: Grafana Alloy가 전 클러스터에 배포되어 있는지 (메트릭/로그 수집 보장)
     echo ""
     echo "  [C2] Grafana Alloy DaemonSet (전 클러스터 수집 에이전트)"
-    for ctx in mgmt app1 app2; do
+    for ctx in mgmt app1; do
         local kctx="kubernetes-admin@${ctx}"
         if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kctx" \
             -n observability get daemonset alloy &>/dev/null 2>&1; then
@@ -188,7 +188,7 @@ verify_contracts() {
         echo "    ❌ mgmt: Kyverno가 mgmt에 설치됨 (ADR-003 위반)"
         ((failed++)) || true
     fi
-    for ctx in app1 app2; do
+    for ctx in app1; do
         local kctx="kubernetes-admin@${ctx}"
         if kubectl --kubeconfig "${KUBECONFIG_MULTI}" --kube-context "$kctx" \
             -n security get deployment kyverno-admission-controller &>/dev/null 2>&1; then
@@ -203,7 +203,7 @@ verify_contracts() {
     # PriorityClass 검증: platform-critical, platform-normal 존재 여부
     echo ""
     echo "  [인프라] PriorityClass (platform-critical / platform-normal)"
-    for ctx in mgmt app1 app2; do
+    for ctx in mgmt app1; do
         local kctx="kubernetes-admin@${ctx}"
         local pc_ok=true
         for pc in platform-critical platform-normal; do
