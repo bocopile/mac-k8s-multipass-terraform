@@ -59,12 +59,7 @@ Docker Hub의 `bitnami/*` 이미지가 전면 삭제됨. 영향받는 차트:
 
 ## 3. 리소스 부족 (mgmt-worker-0 CPU 97%)
 
-mgmt-worker-0이 CPU 97%로 포화 상태.
-
-**즉시 조치 가능**:
-- [ ] VM CPU 스펙 증가 (현재 2 core → 4 core)
-- [ ] Thanos를 외부로 분리 (CPU 400m 절감)
-- [ ] MinIO를 macOS 로컬로 이동 (CPU 50m 절감)
+- [x] mgmt-worker-0 CPU 스펙 증가: 2 core → 3 core (`locals.tf`)
 
 ---
 
@@ -74,7 +69,11 @@ mgmt-worker-0이 CPU 97%로 포화 상태.
 | Addon | 실패 원인 | 조치 |
 |-------|----------|------|
 | velero | CRD job의 kubectl 이미지 문제 | `alpine/k8s` 이미지로 교체 완료, 재시도 필요 |
-| opensearch | mgmt-worker-0 CPU 부족 | VM 스펙 증가 또는 리소스 requests 축소 |
+
+### 별도 VM 구축 예정
+| Addon | 비고 |
+|-------|------|
+| opensearch | 별도 VM에 구축 (Harbor/Nexus와 동일 패턴). 감사/보안 로그 분석 전용 |
 
 ### 미착수
 | Addon | 비고 |
