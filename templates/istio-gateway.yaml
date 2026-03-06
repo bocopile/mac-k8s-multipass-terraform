@@ -135,15 +135,3 @@ spec:
     - source:
         notNamespaces: ["istio-system", "kube-system"]
 
----
-# PeerAuthentication: mTLS 모드 설정
-apiVersion: security.istio.io/v1
-kind: PeerAuthentication
-metadata:
-  name: default
-  namespace: istio-system
-spec:
-  mtls:
-    # STRICT: 모든 통신 mTLS 강제
-    # PERMISSIVE: mTLS와 plain text 모두 허용 (레거시 호환)
-    mode: PERMISSIVE

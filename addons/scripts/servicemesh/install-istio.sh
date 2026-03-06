@@ -251,6 +251,37 @@ EOF
     echo "  ServiceMonitor CRD not found on ${CLUSTER}, skipping (Prometheus not installed here)"
   fi
 
+  # =============================================================================
+  # 5. mTLS PeerAuthentication 설정 (클러스터별 분기)
+  # =============================================================================
+  if [[ "${CLUSTER}" == "app1" ]]; then
+    echo "[5/5] Applying mTLS STRICT on ${CLUSTER}..."
+    $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+EOF
+    echo "  mTLS STRICT 적용 완료 (${CLUSTER})"
+  else
+    echo "[5/5] Applying mTLS PERMISSIVE on ${CLUSTER} (플랫폼 서비스 호환)..."
+    $(get_kubectl_cmd "${CLUSTER}") apply -f - <<EOF
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: PERMISSIVE
+EOF
+    echo "  mTLS PERMISSIVE 적용 (${CLUSTER}: 사이드카 없는 플랫폼 서비스 호환)"
+  fi
+
   echo "=== Istio installed successfully on ${CLUSTER} ==="
 done
 
