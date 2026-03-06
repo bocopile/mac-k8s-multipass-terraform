@@ -64,8 +64,8 @@ echo "Tempo installed successfully."
 # =============================================================================
 echo "[3/4] Verifying Tempo services..."
 
-$(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" wait --for=condition=available --timeout="${TIMEOUT_DEPLOYMENT}s" \
-  deployment/tempo || echo "WARNING: Tempo deployment not ready"
+$(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" rollout status statefulset/tempo --timeout="${TIMEOUT_DEPLOYMENT}s" \
+  || log_warn "Tempo StatefulSet not fully ready (may still be starting)"
 
 # Tempo 서비스 확인
 TEMPO_SVC=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" get svc tempo -o name 2>/dev/null || echo "")
@@ -126,7 +126,8 @@ EOF
 
 # Grafana 재시작하여 데이터소스 로드
 $(get_kubectl_cmd mgmt) -n "${NAMESPACE_MONITORING}" rollout restart deployment/kube-prometheus-stack-grafana
-$(get_kubectl_cmd mgmt) -n "${NAMESPACE_MONITORING}" rollout status deployment/kube-prometheus-stack-grafana --timeout="${TIMEOUT_POD_READY}s"
+$(get_kubectl_cmd mgmt) -n "${NAMESPACE_MONITORING}" rollout status deployment/kube-prometheus-stack-grafana --timeout="${TIMEOUT_POD_READY}s" \
+  || log_warn "Grafana rollout not complete (datasource will apply on next restart)"
 
 # =============================================================================
 # 설치 요약
