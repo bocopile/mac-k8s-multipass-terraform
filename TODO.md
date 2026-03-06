@@ -65,26 +65,32 @@ Docker Hub의 `bitnami/*` 이미지가 전면 삭제됨. 영향받는 차트:
 
 ## 4. 미설치 Addon 목록
 
-### 설치 실패 (재시도 필요)
-| Addon | 실패 원인 | 조치 |
-|-------|----------|------|
-| velero | CRD job의 kubectl 이미지 문제 | `alpine/k8s` 이미지로 교체 완료, 재시도 필요 |
+### 설치 완료 (수동 재시도로 해결)
+| Addon | 원래 실패 원인 | 조치 |
+|-------|-------------|------|
+| velero | CRD job의 distroless 호환 문제 | `upgradeCRDs=false`로 CRD job 스킵 |
+| thanos | bitnami chart 이미지 | quay.io 오버라이드, 수동 재실행 성공 |
 
 ### 별도 VM 구축 예정
 | Addon | 비고 |
 |-------|------|
 | opensearch | 별도 VM에 구축 (Harbor/Nexus와 동일 패턴). 감사/보안 로그 분석 전용 |
 
+### --all 실행 시 실패한 addon (2차 조치 필요)
+| Addon | 실패 원인 | 조치 방안 |
+|-------|----------|----------|
+| clustermesh | setup-clustermesh.sh 실행 실패 | Cilium ClusterMesh 설정 확인 필요 |
+| vault-pki | Vault unseal 전이라 PKI 설정 불가 | Vault init/unseal 후 수동 실행 |
+| platform-addons | opencost helm chart 실패 | chart 버전/설정 확인 |
+| tempo | Grafana 데이터소스 추가 단계 실패 | Grafana pod 접근 확인 |
+| istio | 스크립트 실행 실패 | 리소스 여유 확인 후 재시도 |
+| kiali | Istio 미설치라 실패 | Istio 설치 후 재시도 |
+| holmesgpt | Robusta chart sink 미설정 | Slack 등 sink 설정 필요 |
+
 ### 미착수
 | Addon | 비고 |
 |-------|------|
-| clustermesh | Cilium 클러스터 메시 (멀티클러스터 네트워킹) |
-| platform-addons | local-path-retain StorageClass 등 플랫폼 기본 설정 |
 | prometheus-agent | app 클러스터 → mgmt Thanos remote_write |
-| istio | 서비스 메시 — 리소스 소비 큼, Ambient mode 검토 |
-| kiali | Istio 대시보드 — Istio 의존 |
-| k8sgpt | AI 기반 K8s 진단 |
-| holmesgpt | AI 기반 장애 분석 |
 | botkube | ChatOps (Slack/Teams 연동) |
 
 ---

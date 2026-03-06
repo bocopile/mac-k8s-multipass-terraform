@@ -19,18 +19,22 @@ log_info "[${CLUSTER_NAME}] Initializing cluster on ${CP_NODE}"
 # Wait for node to be ready
 wait_for_node_ready "${CP_NODE}"
 
-# kubeadm init 실행
-log_info "Running kubeadm init on ${CP_NODE}..."
-if ! multipass exec "${CP_NODE}" -- sudo kubeadm init --config /home/ubuntu/kubeadm-config.yaml; then
-  error_exit "kubeadm init failed on ${CP_NODE}. Check VM logs: multipass exec ${CP_NODE} -- sudo journalctl -u kubelet -n 50"
+# kubeadm init 실행 (멱등성: 이미 초기화된 경우 스킵)
+if multipass exec "${CP_NODE}" -- test -f /etc/kubernetes/admin.conf 2>/dev/null; then
+  log_info "Cluster already initialized on ${CP_NODE}, skipping kubeadm init"
+else
+  log_info "Running kubeadm init on ${CP_NODE}..."
+  if ! multipass exec "${CP_NODE}" -- sudo kubeadm init --config /home/ubuntu/kubeadm-config.yaml; then
+    error_exit "kubeadm init failed on ${CP_NODE}. Check VM logs: multipass exec ${CP_NODE} -- sudo journalctl -u kubelet -n 50"
+  fi
 fi
 
 # kubeconfig 설정
 log_info "Setting up kubeconfig on ${CP_NODE}..."
 multipass exec "${CP_NODE}" -- bash -c "\
-  mkdir -p /home/ubuntu/.kube && \
+  sudo mkdir -p /home/ubuntu/.kube && \
   sudo cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config && \
-  sudo chown ubuntu:ubuntu /home/ubuntu/.kube/config"
+  sudo chown -R ubuntu:ubuntu /home/ubuntu/.kube"
 
 # kubeconfig 로컬로 전송
 log_info "Transferring kubeconfig to local..."
