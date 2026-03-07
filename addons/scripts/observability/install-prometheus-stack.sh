@@ -65,6 +65,10 @@ $(get_helm_cmd mgmt) upgrade --install kube-prometheus-stack prometheus-communit
   --set grafana.persistence.enabled=true \
   --set grafana.persistence.storageClassName="${STORAGE_CLASS_RETAIN}" \
   --set grafana.persistence.size="${STORAGE_SIZE_SMALL}" \
+  --set grafana.initChownData.enabled=false \
+  --set grafana.securityContext.runAsUser=472 \
+  --set grafana.securityContext.runAsGroup=472 \
+  --set grafana.securityContext.fsGroup=472 \
   --set grafana.sidecar.dashboards.enabled=true \
   --set grafana.sidecar.datasources.enabled=true \
   --set alertmanager.enabled=true \
