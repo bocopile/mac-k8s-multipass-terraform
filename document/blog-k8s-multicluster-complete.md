@@ -2,7 +2,7 @@
 
 > 이전 글: [k8s-pattern-on-premise-01](https://velog.io/@gjrjr4545/k8s-pattern-on-premise-01)
 >
-> Mac Studio M1 Max (64GB) 위에서 OpenTofu + Shell Script로 Kubernetes 멀티클러스터를 구축하고,
+> Mac Studio M1 Max (64GB) 위에서 OpenTofu + Shell script로 Kubernetes 멀티클러스터를 구축하고,
 > 플랫폼 엔지니어링에 필요한 Addon을 모두 설치한 최종 결과를 정리합니다.
 
 ---
@@ -16,7 +16,7 @@
 | 클러스터 | mgmt + app1 + app2 (3개) | mgmt + app1 (2개) | 리소스 부족 — app2의 4CPU/7GB를 mgmt에 재분배 |
 | VM | 6개 (CP3 + Worker3) | 4개 (CP2 + Worker2) | app2 제거 |
 | 총 RAM | ~30GB | ~23GB | 64GB 호스트에서 안정적 운영 |
-| mgmt-worker-0 | 3GB / 2CPU | **12GB / 4CPU** | 플랫폼 Addon 14개를 안정적으로 수용 |
+| mgmt-worker-0 | 3GB / 2CPU | **12GB / 4CPU** | 플랫폼 Addon(16개)을 안정적으로 수용 |
 
 실제로 `tofu apply`를 반복 실행할 때마다 다른 Addon이 실패하는 현상이 있었다. 원인은 mgmt-worker-0의 CPU requests가 95% 이상 포화된 상태에서 스케줄링이 불안정해진 것이었다. app2 클러스터를 제거하고 해당 리소스를 mgmt에 재분배함으로써 해결했다.
 
@@ -86,11 +86,11 @@
 
 ## 3. 전체 Addon 구성
 
-### 3-1. mgmt 클러스터 (14개 릴리스)
+### 3-1. mgmt 클러스터 (16개 Addon)
 
 | 카테고리 | Addon | 역할 |
 |---------|-------|------|
-| CNI | Cilium 1.19 | L3/L4 네트워크, kube-proxy 대체, Gateway API |
+| CNI | Cilium 1.19.0 | L3/L4 네트워크, kube-proxy 대체, Gateway API |
 | 보안 관찰 | Tetragon | eBPF 런타임 보안 이벤트 수집 |
 | LB | MetalLB | 베어메탈 LoadBalancer IP 할당 |
 | 인증서 | cert-manager | TLS 인증서 자동 발급/갱신 |
@@ -107,15 +107,15 @@
 | Service Mesh | Istio (istiod + IngressGateway) | L7 트래픽 관리, mTLS PERMISSIVE |
 | Mesh 시각화 | Kiali | 서비스 그래프, 트래픽 흐름 시각화 |
 
-### 3-2. app1 클러스터 (9개 릴리스)
+### 3-2. app1 클러스터 (9개 Addon)
 
 | 카테고리 | Addon | 역할 |
 |---------|-------|------|
-| CNI | Cilium 1.19 | 네트워크 + Gateway API |
+| CNI | Cilium 1.19.0 | 네트워크 + Gateway API |
 | 보안 관찰 | Tetragon | eBPF 런타임 이벤트 |
 | 인증서 | cert-manager | TLS 인증서 |
 | 시크릿 동기화 | External Secrets Operator | Vault → Secret 동기화 |
-| 텔레메트리 | Grafana Alloy | mgmt의 Thanos/Loki/Tempo로 remote_write |
+| 텔레메트리 | Grafana Alloy | mgmt의 Thanos/Loki로 LB IP 경유 전송, Tempo는 Cluster Mesh 필요 |
 | 정책 보안 | Kyverno (4개 정책) | 이미지 레지스트리 제한, 리소스 제한 필수, privileged 금지, 라벨 필수 |
 | 런타임 보안 | Falco | syscall 기반 이상 행위 탐지 |
 | 백업 | Velero | 리소스 백업 (MinIO 연동) |
@@ -131,13 +131,15 @@
 Tempo를 추가하여 **분산 트레이싱**까지 완성했다.
 
 ```
-[app1 Pod] → Alloy → Thanos Receive (메트릭)
-                    → Loki (로그)
-                    → Tempo (트레이스)
+[app1 Pod] → Alloy → Thanos Receive (메트릭, LB IP 경유)
+                    → Loki (로그, LB IP 경유)
+                    → Tempo (트레이스, Cluster Mesh 필요*)
                               ↓
                          Grafana에서 통합 조회
                          메트릭 → 로그 → 트레이스 드릴다운
 ```
+
+> \* app1에서 mgmt의 Tempo로 트레이스를 전달하려면 Cilium Cluster Mesh가 필요하다. 메트릭과 로그는 MetalLB LoadBalancer IP를 통해 전달되므로 Cluster Mesh 없이도 동작한다. Cluster Mesh 구성은 현재 스크립트 수준으로 준비되어 있으며(`setup-clustermesh.sh`), 안정화 및 서비스 연동을 다음 과제로 선정했다.
 
 Grafana에서 메트릭 알림을 확인하고, 해당 시간대의 로그를 조회하고, 특정 요청의 트레이스를 추적하는 것이 하나의 흐름으로 가능해졌다.
 
@@ -285,7 +287,7 @@ Phase 3: 인프라 검증 (verify-infra.sh)
 │  Tempo         ← 트레이스 수신                            │
 │                       ↓                                  │
 │              Grafana (통합 대시보드)                       │
-│              28개 대시보드 + 2개 데이터소스                  │
+│              28개 대시보드 + 추가 데이터소스 2개(Loki, Tempo) │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -319,7 +321,7 @@ mgmt 클러스터 장애 시에도 app1 워크로드는 독립적으로 동작�
 
 | 항목 | 설정 |
 |------|------|
-| CNI | Cilium 1.19 (kube-proxy 대체) |
+| CNI | Cilium 1.19.0 (kube-proxy 대체) |
 | 터널 모드 | VXLAN (Multipass 브리지 네트워크 제약) |
 | LB | MetalLB (L2 모드) |
 | Ingress | Istio IngressGateway |
@@ -349,6 +351,7 @@ mgmt 클러스터 장애 시에도 app1 워크로드는 독립적으로 동작�
 ## 10. 검증 결과
 
 `tofu apply` 완료 후 `verify-infra.sh`가 자동 실행된다.
+아래 결과는 기준 실행 1회의 예시다.
 
 ```
 검증 결과 요약
@@ -369,7 +372,7 @@ INFO 3건은 모두 운영 안내 사항이다:
 |------|------|------|
 | /etc/hosts 미등록 | 도메인 접근 시 수동 등록 필요 | `sudo bash scripts/update-hosts-bocopile.sh` |
 | Vault 0/1 | unseal 필요 | `bash scripts/vault-unseal.sh` |
-| 도메인 1개 503 | MinIO Console VirtualService 라우팅 | 수정 완료 |
+| 도메인 1개 503 | MinIO Console VirtualService 라우팅 오류 | 수정 완료 (현재 해소) |
 
 ---
 
@@ -418,7 +421,7 @@ VirtualService에서 `minio:9001`로 라우팅했지만, MinIO Helm chart는 Con
 
 ### wait_for_lb_ip 로그 오염
 
-`wait_for_lb_ip` 함수가 `log_info`를 stdout으로 출력하면서 `MINIO_IP=$(wait_for_lb_ip ...)`에 `[INFO]` 문자열이 캡처되었다. IP 파일에 로그가 섞여 들어가는 버그로, `log_info`를 stderr(`>&2`)로 리다이렉트하여 해결했다.
+`wait_for_lb_ip` 함수가 `log_info`를 stdout으로 출력하면서 `MINIO_IP=$(wait_for_lb_ip ...)`에 `[INFO]` 문자열이 캡처되었다. IP 파일에 로그가 섞여 들어가는 버그로, 함수 내 로그 출력을 `echo "..." >&2`로 직접 stderr 리다이렉트하여 해결했다.
 
 ### Vault exit code 2
 
@@ -430,10 +433,10 @@ VirtualService에서 `minio:9001`로 라우팅했지만, MinIO Helm chart는 Con
 
 | 분류 | 기술 |
 |------|------|
-| IaC | OpenTofu + Shell Script |
+| IaC | OpenTofu + Shell script |
 | VM | Multipass (Apple Silicon) |
 | K8s 설치 | kubeadm v1.35 |
-| CNI | Cilium 1.19 |
+| CNI | Cilium 1.19.0 |
 | LB | MetalLB (L2) |
 | Service Mesh | Istio 1.29 + Kiali 2.22 |
 | 시크릿 | Vault + External Secrets Operator |
@@ -457,7 +460,7 @@ VirtualService에서 `minio:9001`로 라우팅했지만, MinIO Helm chart는 Con
 
 | 항목 | 현재 | 개선 방향 | 우선순위 |
 |------|------|----------|---------|
-| Cilium Cluster Mesh | 미적용 | mgmt ↔ app1 간 Pod-to-Pod 직접 통신, 서비스 디스커버리 | 높음 |
+| Cilium Cluster Mesh | 스크립트 준비 (`setup-clustermesh.sh`) | mgmt ↔ app1 간 Pod-to-Pod 직접 통신, 서비스 디스커버리. 적용 시 app1→Tempo 트레이스 경로 완성 | 높음 |
 | Istio Ambient Mode | Sidecar 방식 | Sidecar-less L4/L7 처리로 리소스 절감 | 중간 |
 | Tempo 차트 | tempo (deprecated) | tempo-distributed로 마이그레이션 | 중간 |
 | Vault HA | Standalone (1 replica) | Raft 기반 HA 구성 (3 replica) | 낮음 |

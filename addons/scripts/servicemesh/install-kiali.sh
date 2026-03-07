@@ -55,8 +55,8 @@ for CLUSTER in ${KIALI_CLUSTERS}; do
   # Prometheus URL
   PROMETHEUS_URL="http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
 
-  # Tempo URL (mgmt 클러스터의 Tempo)
-  TEMPO_URL="http://tempo.monitoring.svc:3100"
+  # Tempo URL (mgmt 클러스터의 Tempo - observability 네임스페이스)
+  TEMPO_URL="http://tempo.${NAMESPACE_OBSERVABILITY}.svc:3100"
 
   # ===========================================================================
   # Kiali Server 설치

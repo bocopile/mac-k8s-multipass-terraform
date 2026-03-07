@@ -37,7 +37,7 @@ ensure_namespace_privileged "${NAMESPACE_MONITORING}" "mgmt"
 log_info "Installing kube-prometheus-stack on mgmt cluster"
 
 # Thanos Receive IP 확인 (이미 설치된 경우)
-THANOS_QUERY_SVC="http://thanos-query.thanos.svc.cluster.local:9090"
+THANOS_QUERY_SVC="http://thanos-query.${NAMESPACE_OBSERVABILITY}.svc.cluster.local:9090"
 
 PROMETHEUS_STACK_VERSION="${1:-82.9.0}"
 
@@ -96,7 +96,7 @@ echo ""
 echo "=== Configuring Grafana Thanos Query datasource ==="
 
 # Thanos가 이미 설치되어 있으면 datasource 추가
-THANOS_EXIST=$($(get_kubectl_cmd mgmt) -n thanos get svc thanos-query 2>/dev/null && echo "true" || echo "false")
+THANOS_EXIST=$($(get_kubectl_cmd mgmt) -n "${NAMESPACE_OBSERVABILITY}" get svc thanos-query 2>/dev/null && echo "true" || echo "false")
 
 if [[ "${THANOS_EXIST}" == "true" ]]; then
   $(get_kubectl_cmd mgmt) -n "${NAMESPACE_MONITORING}" apply -f - <<EOF
