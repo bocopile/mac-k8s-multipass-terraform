@@ -512,10 +512,64 @@ mgmt-worker-0에 플랫폼 Addon이 집중되어 있어, 리소스 여유를 확
 | 도구 | 용도 | 도입 조건 |
 |------|------|----------|
 | OpenSearch + Dashboards | 로그 분석/검색 (Loki 보완) | 외부 분리로 리소스 확보 후 |
-| Argo Rollouts | 카나리/블루그린 배포 | ArgoCD 안정화 후 |
-| Crossplane | 인프라 리소스 GitOps화 | Azure 연동 활성화 후 |
 | Harbor | Private Container Registry | Azure VM 또는 로컬 Docker |
 | Trivy Operator | 이미지/K8s 취약점 스캔 | 리소스 여유 확보 후 |
+| Argo Rollouts | 카나리/블루그린 배포 | ArgoCD 안정화 후 |
+| Crossplane | 인프라 리소스 GitOps화 | Azure 연동 활성화 후 |
+
+#### OpenSearch + Dashboards
+
+현재 로그 스택은 Loki(인덱스 없는 경량 저장) + Grafana(조회)로 구성되어 있다. Loki는 라벨 기반 필터링에 최적화되어 있지만, 로그 본문의 전문 검색(full-text search)이나 복잡한 집계 분석에는 한계가 있다.
+
+OpenSearch를 도입하면 Loki와 병행하여 **로그 분석/검색 전용 계층**을 추가할 수 있다.
+
+```mermaid
+flowchart LR
+    Alloy["Alloy"] -->|"경량 저장"| Loki["Loki\n라벨 기반 필터"]
+    Alloy -->|"분석용"| OS["OpenSearch\n전문 검색 + 집계"]
+    Loki --> Grafana
+    OS --> OSD["OpenSearch\nDashboards"]
+```
+
+- **리소스 요구**: CPU 600m+, Memory 1.2Gi+ (현재 mgmt-worker-0에서 수용 불가)
+- **도입 전략**: Thanos/MinIO 외부 분리로 CPU 여유 확보 후 설치, 또는 별도 VM에 Docker로 실행
+- **연동**: Alloy에서 OpenSearch exporter 추가 (dual-write: Loki + OpenSearch)
+
+#### Harbor
+
+현재 모든 컨테이너 이미지를 외부 레지스트리(registry.k8s.io, docker.io, quay.io, ghcr.io)에서 직접 Pull하고 있다. Harbor를 도입하면 **Private Container Registry**로서 이미지 캐싱, 취약점 스캔, 접근 제어를 통합할 수 있다.
+
+```mermaid
+flowchart LR
+    Dev["개발자"] -->|"docker push"| Harbor["Harbor\nPrivate Registry"]
+    Harbor -->|"이미지 복제"| Ext["외부 Registry\n(docker.io 등)"]
+    Harbor -->|"Trivy 스캔"| Scan["취약점 스캔\n결과 저장"]
+    K8s["K8s 클러스터"] -->|"image pull"| Harbor
+```
+
+- **도입 위치**: Azure VM(`azure-infra/` 모듈) 또는 macOS Docker
+- **Kyverno 연동**: `restrict-image-registries` 정책에 Harbor 도메인 추가하여, app1에서 Harbor 전용 Pull 강제 가능
+- **Trivy 내장**: Harbor 2.x는 Trivy 스캐너를 내장하고 있어, Push 시 자동 취약점 스캔이 가능하다
+
+#### Trivy Operator
+
+현재 보안 스택은 Kyverno(정책), Falco(런타임 탐지), Tetragon(eBPF 관찰)으로 구성되어 있다. 하지만 **이미지 취약점 스캔**과 **K8s 리소스 설정 감사**는 커버되지 않는다.
+
+Trivy Operator를 도입하면 클러스터 내에서 지속적으로 취약점을 스캔하고, 결과를 CRD로 저장하여 Prometheus/Grafana로 시각화할 수 있다.
+
+```mermaid
+flowchart TD
+    TO["Trivy Operator"] -->|"이미지 스캔"| VR["VulnerabilityReport\nCRD"]
+    TO -->|"설정 감사"| CA["ConfigAuditReport\nCRD"]
+    TO -->|"시크릿 스캔"| ES["ExposedSecretReport\nCRD"]
+    VR --> PM["Prometheus\nMetrics Exporter"]
+    CA --> PM
+    PM --> GF["Grafana\nTrivy Dashboard"]
+```
+
+- **스캔 대상**: 컨테이너 이미지 CVE, K8s 리소스 misconfiguration, 시크릿 노출
+- **리소스**: CPU 100m, Memory 128Mi (비교적 가벼움)
+- **Harbor 연동**: Harbor에서 Push 시 스캔 + Trivy Operator가 클러스터 내 런타임 스캔을 담당하면, 이미지 생명주기 전체를 커버할 수 있다
 
 ### 14-4. 코드 정리
 
