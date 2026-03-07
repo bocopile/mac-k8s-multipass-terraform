@@ -130,13 +130,25 @@
 이전에는 Metrics(Prometheus)와 Logs(Loki) 2축만 구성되어 있었다.
 Tempo를 추가하여 **분산 트레이싱**까지 완성했다.
 
-```
-[app1 Pod] → Alloy → Thanos Receive (메트릭, LB IP 경유)
-                    → Loki (로그, LB IP 경유)
-                    → Tempo (트레이스, Cluster Mesh 필요*)
-                              ↓
-                         Grafana에서 통합 조회
-                         메트릭 → 로그 → 트레이스 드릴다운
+```mermaid
+flowchart LR
+    subgraph app1["app1 클러스터"]
+        Pod["Pod"] --> Alloy["Alloy\nDaemonSet"]
+    end
+
+    subgraph mgmt["mgmt 클러스터"]
+        Thanos["Thanos Receive\n메트릭 집계"]
+        Loki["Loki\n로그 저장"]
+        Tempo["Tempo\n트레이스 저장"]
+        Grafana["Grafana\n통합 대시보드"]
+        Thanos --> Grafana
+        Loki --> Grafana
+        Tempo --> Grafana
+    end
+
+    Alloy -->|"remote_write\n(LB IP)"| Thanos
+    Alloy -->|"loki.write\n(LB IP)"| Loki
+    Alloy -.->|"otlp.export\n(Cluster Mesh 필요*)"| Tempo
 ```
 
 > \* app1에서 mgmt의 Tempo로 트레이스를 전달하려면 Cilium Cluster Mesh가 필요하다. 메트릭과 로그는 MetalLB LoadBalancer IP를 통해 전달되므로 Cluster Mesh 없이도 동작한다. Cluster Mesh 구성은 현재 스크립트 수준으로 준비되어 있으며(`setup-clustermesh.sh`), 안정화 및 서비스 연동을 다음 과제로 선정했다.
@@ -147,11 +159,20 @@ Grafana에서 메트릭 알림을 확인하고, 해당 시간대의 로그를 �
 
 이전에는 app 클러스터에 Prometheus Agent(메트릭)와 Promtail(로그)을 별도로 운영했다.
 
-| 이전 | 현재 |
-|------|------|
-| Prometheus Agent (DaemonSet) | Grafana Alloy (DaemonSet) |
-| Promtail (DaemonSet) | ↑ 하나로 통합 |
-| OTel Collector (필요 시) | ↑ 트레이스도 포함 |
+```mermaid
+flowchart LR
+    subgraph before["이전 (DaemonSet 3개)"]
+        PA["Prometheus Agent"] -->|메트릭| T1["Thanos"]
+        PT["Promtail"] -->|로그| L1["Loki"]
+        OT["OTel Collector"] -->|트레이스| TE1["Tempo"]
+    end
+
+    subgraph after["현재 (DaemonSet 1개)"]
+        AL["Grafana Alloy"] -->|메트릭| T2["Thanos"]
+        AL -->|로그| L2["Loki"]
+        AL -->|트레이스| TE2["Tempo"]
+    end
+```
 
 Alloy 하나로 메트릭 remote_write + 로그 수집 + 트레이스 전달을 처리한다. DaemonSet 수가 줄어 리소스 사용량이 감소하고, 설정 관리가 단순해졌다.
 
@@ -166,12 +187,12 @@ Cilium과 Istio를 병행하는 이중 구조를 선택했다.
 
 Istio IngressGateway를 통해 `*.bocopile.io` 도메인으로 10개 서비스에 접근할 수 있다.
 
-```
-브라우저 → grafana.bocopile.io
-        → /etc/hosts (192.168.64.204)
-        → Istio IngressGateway
-        → VirtualService 라우팅
-        → kube-prometheus-stack-grafana:80
+```mermaid
+flowchart LR
+    Browser["브라우저"] -->|"grafana.bocopile.io"| Hosts["/etc/hosts\n192.168.64.204"]
+    Hosts --> IGW["Istio\nIngressGateway"]
+    IGW --> VS["VirtualService\n라우팅"]
+    VS --> Svc["kube-prometheus-stack\n-grafana:80"]
 ```
 
 도메인별 VirtualService 매핑:
@@ -219,16 +240,22 @@ tofu apply -auto-approve  # 전체 완료 (VM → K8s → Addon → 검증)
 
 main.tf의 Phase 구조:
 
-```
-Phase 0: 사전 체크 (check-prerequisites.sh)
-Phase 1: VM 생성 → 클러스터 초기화 → Worker Join → Kubeconfig 병합
-Phase 2-A: 인프라 Addon (Cilium, MetalLB, Gateway API, cert-manager)
-Phase 2-B: Secrets & GitOps (Vault, ESO, ArgoCD) ─┐ 병렬
-Phase 2-C: Backup (MinIO, Velero) ─────────────────┘
-Phase 2-D: Observability (Thanos, Prometheus, Loki, Tempo, Alloy)
-Phase 2-E: Security & Mesh (Istio, Kiali, Falco, Kyverno)
-Phase 2-F: Istio Gateway + VirtualService
-Phase 3: 인프라 검증 (verify-infra.sh)
+```mermaid
+flowchart TD
+    P0["Phase 0\n사전 체크\ncheck-prerequisites.sh"]
+    P1["Phase 1\nVM 생성 → K8s 초기화\nWorker Join → Kubeconfig 병합"]
+    P2A["Phase 2-A\n인프라 Addon\nCilium, MetalLB\nGateway API, cert-manager"]
+    P2B["Phase 2-B\nSecrets & GitOps\nVault, ESO, ArgoCD"]
+    P2C["Phase 2-C\nBackup\nMinIO, Velero"]
+    P2D["Phase 2-D\nObservability\nThanos, Prometheus\nLoki, Tempo, Alloy"]
+    P2E["Phase 2-E\nSecurity & Mesh\nIstio, Kiali\nFalco, Kyverno"]
+    P2F["Phase 2-F\nIstio Gateway\nVirtualService"]
+    P3["Phase 3\n인프라 검증\nverify-infra.sh"]
+
+    P0 --> P1 --> P2A
+    P2A --> P2B & P2C
+    P2B & P2C --> P2D
+    P2D --> P2E --> P2F --> P3
 ```
 
 ---
@@ -269,26 +296,28 @@ Phase 3: 인프라 검증 (verify-infra.sh)
 
 ### 6-1. 데이터 흐름
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ app1 클러스터                                            │
-│                                                         │
-│  [Pod] → Alloy DaemonSet                                │
-│            ├─ remote_write → Thanos Receive (mgmt)      │
-│            ├─ loki.write   → Loki (mgmt)                │
-│            └─ otlp.export  → Tempo (mgmt)               │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│ mgmt 클러스터                                            │
-│                                                         │
-│  Thanos Receive ← 메트릭 수신 → Thanos Query            │
-│  Loki          ← 로그 수신                               │
-│  Tempo         ← 트레이스 수신                            │
-│                       ↓                                  │
-│              Grafana (통합 대시보드)                       │
-│              28개 대시보드 + 추가 데이터소스 2개(Loki, Tempo) │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph app1["app1 클러스터"]
+        Pod["Pod\nWorkload"] --> Alloy["Alloy\nDaemonSet"]
+    end
+
+    subgraph mgmt["mgmt 클러스터"]
+        subgraph collect["데이터 수신"]
+            TR["Thanos Receive\n메트릭"]
+            LK["Loki\n로그"]
+            TP["Tempo\n트레이스"]
+        end
+        TQ["Thanos Query"]
+        GF["Grafana\n28개 대시보드\n+ Loki, Tempo 데이터소스"]
+        TR --> TQ --> GF
+        LK --> GF
+        TP --> GF
+    end
+
+    Alloy -->|"remote_write\nLB 192.168.64.202"| TR
+    Alloy -->|"loki.write\nLB 192.168.64.203"| LK
+    Alloy -.->|"otlp.export\nCluster Mesh 필요"| TP
 ```
 
 ### 6-2. Graceful Degradation
