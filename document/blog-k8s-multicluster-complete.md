@@ -513,7 +513,6 @@ mgmt-worker-0에 플랫폼 Addon이 집중되어 있어, 리소스 여유를 확
 |------|------|----------|
 | OpenSearch + Dashboards | 로그 분석/검색 (Loki 보완) | 외부 분리로 리소스 확보 후 |
 | Harbor | Private Container Registry | Azure VM 또는 로컬 Docker |
-| Trivy Operator | 이미지/K8s 취약점 스캔 | 리소스 여유 확보 후 |
 | Argo Rollouts | 카나리/블루그린 배포 | ArgoCD 안정화 후 |
 | Crossplane | 인프라 리소스 GitOps화 | Azure 연동 활성화 후 |
 
@@ -551,25 +550,8 @@ flowchart LR
 - **Kyverno 연동**: `restrict-image-registries` 정책에 Harbor 도메인 추가하여, app1에서 Harbor 전용 Pull 강제 가능
 - **Trivy 내장**: Harbor 2.x는 Trivy 스캐너를 내장하고 있어, Push 시 자동 취약점 스캔이 가능하다
 
-#### Trivy Operator
-
-현재 보안 스택은 Kyverno(정책), Falco(런타임 탐지), Tetragon(eBPF 관찰)으로 구성되어 있다. 하지만 **이미지 취약점 스캔**과 **K8s 리소스 설정 감사**는 커버되지 않는다.
-
-Trivy Operator를 도입하면 클러스터 내에서 지속적으로 취약점을 스캔하고, 결과를 CRD로 저장하여 Prometheus/Grafana로 시각화할 수 있다.
-
-```mermaid
-flowchart TD
-    TO["Trivy Operator"] -->|"이미지 스캔"| VR["VulnerabilityReport\nCRD"]
-    TO -->|"설정 감사"| CA["ConfigAuditReport\nCRD"]
-    TO -->|"시크릿 스캔"| ES["ExposedSecretReport\nCRD"]
-    VR --> PM["Prometheus\nMetrics Exporter"]
-    CA --> PM
-    PM --> GF["Grafana\nTrivy Dashboard"]
-```
-
-- **스캔 대상**: 컨테이너 이미지 CVE, K8s 리소스 misconfiguration, 시크릿 노출
-- **리소스**: CPU 100m, Memory 128Mi (비교적 가벼움)
-- **Harbor 연동**: Harbor에서 Push 시 스캔 + Trivy Operator가 클러스터 내 런타임 스캔을 담당하면, 이미지 생명주기 전체를 커버할 수 있다
+> **Trivy Operator는 왜 제외했나?**
+> Harbor 2.x에 Trivy 스캐너가 내장되어 있어 Push 시 이미지 취약점 스캔이 자동 처리된다. K8s 설정 감사는 Kyverno가, 런타임 이상 탐지는 Falco + Tetragon이 이미 커버하고 있으므로 Trivy Operator를 별도로 도입할 필요는 없다고 판단했다.
 
 ### 14-4. 코드 정리
 
