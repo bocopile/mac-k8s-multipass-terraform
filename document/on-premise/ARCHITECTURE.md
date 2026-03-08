@@ -1,8 +1,8 @@
 # Kubernetes 멀티클러스터 아키텍처
 
-> **버전**: 6.0.0
+> **버전**: 7.0.0
 > **Kubernetes**: v1.35
-> **최종 수정일**: 2026-02-24
+> **최종 수정일**: 2026-03-08
 > **이전 버전 백업**: `ARCHITECTURE.md.bak`
 
 ---
@@ -47,13 +47,11 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | **쿠버네티스** | kubeadm v1.35, containerd |
 | **네트워크** | Cilium 1.19.0 (VXLAN) + Cluster Mesh + Gateway API v1.2.1 + MetalLB v0.15.3 |
 | **Service Mesh** | Istio 1.29.0 + Cilium CNI 통합 |
-| **GitOps** | ArgoCD (mgmt 클러스터, chart 7.7.11) |
-| **시크릿/PKI** | Vault + External Secrets Operator + cert-manager v1.19.3 |
-| **관찰성** | Prometheus + Thanos + Loki + Grafana Alloy 1.5.0 + Tempo 2.6.1 + Grafana + Hubble + Kiali 1.91.0 |
-| **보안** | PSA + Kyverno 3.3.4 + Falco 4.16.0 + Tetragon 1.3.0 + Trivy |
-| **AIOps** | K8sGPT + HolmesGPT (Robusta 0.13.0) + OpenCost + VPA + Chaos Mesh |
+| **GitOps** | ArgoCD (mgmt 클러스터, chart 9.4.7) |
+| **시크릿/PKI** | Vault + External Secrets Operator + cert-manager v1.17.1 |
+| **관찰성** | Prometheus + Thanos + Loki + Grafana Alloy 1.6.1 + Tempo (chart 1.24.4) + Grafana + Hubble + Kiali 2.22.0 |
+| **보안** | PSA + Kyverno 3.3.4 + Falco 4.16.0 + Tetragon 1.3.0 |
 | **백업** | Velero 8.2.0 + MinIO |
-| **ChatOps** | Botkube 1.15.0 (Slack, 선택적) |
 
 ### 1.4 제약 조건
 
@@ -87,7 +85,7 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | 클러스터 | Kyverno | 이유 |
 |---------|---------|------|
 | **mgmt** | 미설치 | 플랫폼/운영자 영역, PSA baseline만 (유연성 확보) |
-| **app1/app2** | Enforce 모드 | 개발팀 워크로드 영역 |
+| **app1** | Enforce 모드 | 개발팀 워크로드 영역 |
 
 ### ADR-013 상세: 공통 라이브러리 현황
 
@@ -151,9 +149,8 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 
 | 클러스터 | 역할 | 주요 컴포넌트 |
 |---------|------|-------------|
-| **mgmt** | 플랫폼 서비스 | Vault, Prometheus Full, Thanos, Loki, Grafana, Tempo, Alertmanager, ArgoCD, Velero, MinIO, Trivy, K8sGPT, HolmesGPT, LocalAI, Botkube(선택), OpenCost, VPA+Goldilocks, Chaos Mesh, Istio (Istiod+Gateway), Kiali |
-| **app1** | 워크로드 A | 애플리케이션, Grafana Alloy, Kyverno, Falco, Istio Sidecar |
-| **app2** | 워크로드 B | 애플리케이션, Grafana Alloy, Kyverno, Falco |
+| **mgmt** | 플랫폼 서비스 | Vault, Prometheus Full, Thanos, Loki, Grafana, Tempo, Alertmanager, ArgoCD, Velero, MinIO, Istio (Istiod+Gateway), Kiali |
+| **app1** | 워크로드 | 애플리케이션, Grafana Alloy, Kyverno, Falco, Istio Sidecar |
 | **공통** | 전 클러스터 | Cilium, Tetragon DaemonSet, MetalLB, cert-manager, ESO, Velero |
 
 ### 4.2 노드 스펙 (`locals.tf` 기준)
@@ -161,12 +158,10 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | 클러스터 | 노드 | RAM | CPU | 디스크 |
 |---------|------|-----|-----|--------|
 | mgmt | mgmt-cp | 4GB | 2 | 40GB |
-| mgmt | mgmt-worker-0 | **10GB** | 2 | 60GB |
+| mgmt | mgmt-worker-0 | **12GB** | **4** | 60GB |
 | app1 | app1-cp | 3GB | 2 | 30GB |
 | app1 | app1-worker-0 | 4GB | 2 | 40GB |
-| app2 | app2-cp | 3GB | 2 | 30GB |
-| app2 | app2-worker-0 | 4GB | 2 | 40GB |
-| **K8s 합계** | | **28GB** | **12** | **240GB** |
+| **K8s 합계** | | **23GB** | **10** | **170GB** |
 
 ### 4.3 CIDR 할당 (`locals.tf` 기준)
 
@@ -174,7 +169,6 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 |---------|----------|--------------|-----------|
 | **mgmt** | 10.100.0.0/16 | 10.96.0.0/16 | 192.168.64.200–210 |
 | **app1** | 10.101.0.0/16 | 10.97.0.0/16 | 192.168.64.211–220 |
-| **app2** | 10.102.0.0/16 | 10.98.0.0/16 | 192.168.64.221–230 |
 
 > 노드 IP: Multipass DHCP 동적 할당 (192.168.64.x 대역)
 
@@ -188,7 +182,7 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 |-----|----|----|
 | `routingMode` | `tunnel` (VXLAN) | ADR-005, Multipass 환경 호환 |
 | `kubeProxyReplacement` | `true` | eBPF 기반 서비스 라우팅 |
-| Cluster Mesh | 활성화 | 3개 클러스터 상호 서비스 디스커버리 |
+| Cluster Mesh | 활성화 | 2개 클러스터 상호 서비스 디스커버리 |
 | Hubble | UI + Relay 활성화 | 네트워크 관찰성 |
 | **구현** | `install-cilium.sh`, `setup-clustermesh.sh` | |
 
@@ -206,9 +200,8 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 
 | 클러스터 | 배포 범위 |
 |---------|----------|
-| **mgmt** | Istiod + Ingress Gateway |
+| **mgmt** | Istiod + Ingress Gateway (mTLS PERMISSIVE) |
 | **app1** | Istiod + Ingress Gateway + Sidecar Injection (mTLS STRICT) |
-| **app2** | 미배포 (선택적) |
 
 **Cilium + Istio 역할 분담**:
 
@@ -242,7 +235,7 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | Vault | local-path-retain | 10Gi |
 | MinIO | local-path | 15Gi |
 
-> `local-path-retain`은 `addons/scripts/install-platform-addons.sh`에서 자동 생성
+> `local-path-retain`은 `addons/scripts/infrastructure/install-local-path-provisioner.sh`에서 자동 생성
 
 ---
 
@@ -258,7 +251,6 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | **L3 네트워크** | Cilium NetworkPolicy (Zero Trust, 기본 deny-all) | 플랫폼 Namespace |
 | **L4 시크릿** | Vault Standalone + ESO (refreshInterval 1h) | 전 클러스터 |
 | **L5 런타임** | Falco (app), Tetragon DaemonSet (전체) | 전 클러스터 |
-| **L6 취약점** | Trivy Operator | mgmt |
 
 ### 7.2 PSA Privileged 예외 Namespace
 
@@ -309,7 +301,7 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 |-----|------|------|-------------|
 | **Metrics (mgmt)** | Prometheus Full + Alertmanager + Grafana | mgmt | `install-prometheus-stack.sh` |
 | **Metrics (장기)** | Thanos Receive + Query + Compactor | mgmt | `install-thanos.sh` |
-| **Metrics (app)** | Grafana Alloy → Thanos remote_write | app1/app2 | `install-alloy.sh` |
+| **Metrics (app)** | Grafana Alloy → Thanos remote_write | app1 | `install-alloy.sh` |
 | **Logs (mgmt)** | Loki SingleBinary + Grafana Alloy | mgmt | `install-loki.sh`, `install-alloy.sh` |
 | **Tracing** | Grafana Tempo | mgmt | `install-tempo.sh` |
 | **Network** | Hubble UI + Relay | 전 클러스터 | `install-cilium.sh` |
@@ -321,19 +313,6 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 |---------|------|
 | Grafana Alloy | WAL 로컬 버퍼링 → 복구 후 자동 재전송 |
 | External Secrets | 캐시 유지 (refreshInterval 1h) |
-
-### 8.3 AIOps 도구
-
-| 도구 | 용도 | RAM | 구현 |
-|-----|------|-----|------|
-| K8sGPT Operator | Pod 에러 자동 진단 | 128MB | `install-platform-addons.sh` + `install-k8sgpt.sh` |
-| LocalAI (LLM) | K8sGPT/HolmesGPT 공유 백엔드 (CPU 모드) | 2~4GB | `install-k8sgpt.sh` |
-| HolmesGPT (Robusta) | Prometheus 알림 RCA | 512MB | `install-holmesgpt.sh` |
-| Botkube | Slack ChatOps | 256MB | `install-botkube.sh` (수동, Slack 토큰 필요) |
-| OpenCost | 비용 가시화 | 100MB | `install-platform-addons.sh` |
-| VPA + Goldilocks | 리소스 최적화 | 300MB | `install-platform-addons.sh` |
-| Chaos Mesh | 장애 주입 (C1 검증) | 200MB | `install-platform-addons.sh` |
-| Trivy Operator | 이미지 CVE 스캔 | 200MB | `install-platform-addons.sh` |
 
 ---
 
@@ -347,7 +326,7 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | L4 | Git 매니페스트 | 원격 저장소 | 커밋 시 |
 
 - MinIO 버킷: `velero-backups`, `thanos`, `loki-logs`, `tempo-traces`
-- 클러스터별 prefix: `mgmt/`, `app1/`, `app2/`
+- 클러스터별 prefix: `mgmt/`, `app1/`
 - `install-velero.sh`가 Helm 설치 후 클러스터별 daily Schedule 리소스(`0 2 * * *`)를 자동 생성
 
 ---
@@ -359,19 +338,19 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 | 구분 | RAM |
 |-----|-----|
 | macOS + IDE + 기타 | ~14GB |
-| K8s VM 6개 합계 | 28GB |
-| **여유** | **~22GB** |
+| K8s VM 4개 합계 | 23GB |
+| **여유** | **~27GB** |
 
 ### 10.2 K8s VM 내부 사용량 요약
 
 | 노드 | 할당 | 예상 사용 | 여유 |
 |-----|------|----------|------|
 | mgmt-cp | 4GB | ~1.7GB | +2.3GB |
-| mgmt-worker-0 | 10GB | ~9.4GB (AI 포함) / ~6.3GB (AI 제외) | ✅ |
-| app1-cp / app2-cp | 3GB 각 | ~1.6GB | +1.4GB |
-| app1-worker-0 / app2-worker-0 | 4GB 각 | ~2.0GB | +2.0GB (앱용) |
+| mgmt-worker-0 | 12GB | ~6.3GB | +5.7GB |
+| app1-cp | 3GB | ~1.6GB | +1.4GB |
+| app1-worker-0 | 4GB | ~2.0GB | +2.0GB (앱용) |
 
-> mgmt-worker-0 주요 컴포넌트: Vault 400MB, ArgoCD 500MB, Prometheus+Grafana 956MB, Thanos 512MB, Loki 400MB, Istio 650MB, LocalAI 2GB, Robusta 512MB
+> mgmt-worker-0 주요 컴포넌트: Vault 400MB, ArgoCD 500MB, Prometheus+Grafana 956MB, Thanos 512MB, Loki 400MB, Istio 650MB, Tempo 256MB, MinIO 512MB
 
 ---
 
@@ -380,53 +359,53 @@ macOS(Apple Silicon) 환경에서 **OpenTofu + Shell Script**로 프로덕션급
 ### 11.1 Phase 1: Infrastructure (`tofu apply`, 10~15분)
 
 ```
-cloud_init → vm(6개) → init_{mgmt,app1,app2} → join_{mgmt,app1,app2}
-                                                         ↓
-                                               merge_kubeconfigs
-                                                         ↓
-                                          generated/clusters.json
-                                          generated/kubeconfig-multi
+cloud_init → vm(4개) → init_{mgmt,app1} → join_{mgmt,app1}
+                                                    ↓
+                                          merge_kubeconfigs
+                                                    ↓
+                                     generated/clusters.json
+                                     generated/kubeconfig-multi
+                                     ~/.kube/config (자동 병합)
 ```
 
 > **사전 조건**: `mkdir -p generated` (generated/ 디렉토리 없으면 첫 실행 실패)
+>
+> kubeconfig는 `~/kubeconfig-multi`로 복사되며, `~/.kube/config`에도 자동 병합됩니다 (기존 컨텍스트 보존, 백업 자동 생성). `tofu destroy` 시 해당 컨텍스트가 자동 제거됩니다.
 
 ### 11.2 Phase 2: Addon Installation (`bash addons/install.sh --all`, 20~30분)
 
 | # | 스크립트 | 대상 | 의존성 |
 |---|---------|------|--------|
 | 0 | `install-priority-classes.sh` | 전 클러스터 | kubeconfig 후 |
-| 1 | `install-cilium.sh` | 전 클러스터 | priority-classes 후 |
-| 2 | `install-tetragon.sh` | 전 클러스터 | Cilium 후 |
-| 3 | `install-metallb.sh` | 전 클러스터 | Cilium 후 |
-| 4 | `install-gateway-api.sh` | 전 클러스터 | Cilium 후 |
-| 5 | `setup-clustermesh.sh` | 전 클러스터 | MetalLB 후 |
-| 6 | `install-cert-manager.sh` | 전 클러스터 | Cluster Mesh 후 |
-| 7 | `install-vault.sh` | mgmt | cert-manager 후 |
-| 8 | `setup-vault-pki.sh` | mgmt | Vault 후 |
-| 9 | `install-eso.sh` | 전 클러스터 | Vault 후 |
-| 10 | `install-argocd.sh` | mgmt | Cluster Mesh 후 |
-| 11 | `install-platform-addons.sh` | mgmt | Cluster Mesh 후 |
-| 12 | `install-k8sgpt.sh` | mgmt | Platform Addons 후 |
-| 13 | `install-minio.sh` | mgmt | Platform Addons 후 |
-| 14 | `install-velero.sh` | 전 클러스터 | MinIO 후 |
-| 15 | `install-thanos.sh` | mgmt | MinIO 후 |
-| 16 | `install-prometheus-stack.sh` | mgmt | Thanos 후 |
-| 17 | `install-loki.sh` | mgmt | Prometheus Stack 후 |
-| 18 | `install-tempo.sh` | mgmt | Prometheus Stack 후 |
-| 19 | `install-alloy.sh` | 전 클러스터 | Thanos + Loki 후 |
-| 21 | `install-istio.sh` | mgmt + app1 | Alloy 후 |
-| 22 | `install-kiali.sh` | mgmt + app1 | Istio 후 |
-| 23 | `install-kyverno.sh` | app1/app2 | Istio 후 |
-| 24 | `install-falco.sh` | app1/app2 | Kyverno 후 |
-| 25 | `install-holmesgpt.sh` | mgmt | K8sGPT + Prometheus + Loki 후 |
-| 26 | `install-botkube.sh` | mgmt | **수동** (Slack 토큰 필요) |
-| - | `apply-network-policies.sh` | 플랫폼 NS | 전체 완료 후 |
-| - | `scripts/verify-clusters.sh` | 검증 | 전체 완료 후 |
+| 1 | `install-local-path-provisioner.sh` | 전 클러스터 | priority-classes 후 |
+| 2 | `install-cilium.sh` | 전 클러스터 | local-path-provisioner 후 |
+| 3 | `install-tetragon.sh` | 전 클러스터 | Cilium 후 |
+| 4 | `install-metallb.sh` | 전 클러스터 | Cilium 후 |
+| 5 | `install-gateway-api.sh` | 전 클러스터 | Cilium 후 |
+| 6 | `setup-clustermesh.sh` | 전 클러스터 | MetalLB 후 |
+| 7 | `install-cert-manager.sh` | 전 클러스터 | Cluster Mesh 후 |
+| 8 | `install-vault.sh` | mgmt | cert-manager 후 |
+| 9 | `setup-vault-pki.sh` | mgmt | Vault 후 |
+| 10 | `install-eso.sh` | 전 클러스터 | Vault 후 |
+| 11 | `install-argocd.sh` | mgmt | ESO 후 |
+| 12 | `install-minio.sh` | mgmt | ArgoCD 후 |
+| 13 | `install-velero.sh` | 전 클러스터 | MinIO 후 |
+| 14 | `install-prometheus-stack.sh` | mgmt | MinIO 후 |
+| 15 | `install-thanos.sh` | mgmt | Prometheus Stack + MinIO 후 |
+| 16 | `install-loki.sh` | mgmt | Thanos 후 |
+| 17 | `install-tempo.sh` | mgmt | Loki 후 |
+| 18 | `install-alloy.sh` | 전 클러스터 | Thanos + Loki 후 |
+| 19 | `install-istio.sh` | mgmt + app1 | Alloy 후 |
+| 20 | `install-kiali.sh` | mgmt + app1 | Istio 후 |
+| 21 | `install-falco.sh` | app1 | Kiali 후 |
+| 22 | `install-kyverno.sh` | app1 | Falco 후 (webhook 차단 방지를 위해 맨 마지막) |
 
 ```bash
-# 카테고리별 설치
+# 전체 설치
 bash addons/install.sh --all
-bash addons/install.sh --category networking
+
+# 카테고리별 설치
+bash addons/install.sh --category infrastructure
 bash addons/install.sh --category observability
 bash addons/install.sh --category security
 ```
@@ -446,7 +425,6 @@ bash addons/install.sh --category security
 | Kiali | istio-system | 20001 | http://localhost:20001/kiali | anonymous |
 | Vault UI | vault | 8200 | http://localhost:8200 | [vault-root-token] |
 | Thanos Query | observability | 9090 | http://localhost:9090 | - |
-| Chaos Mesh | chaos-mesh | 2333 | http://localhost:2333 | - |
 
 ### 12.2 LoadBalancer (Cross-Cluster 통신)
 
@@ -481,7 +459,7 @@ cat generated/.credentials.env
 cat generated/vault-root-token
 
 # ArgoCD admin 비밀번호
-kubectl --kubeconfig ~/kubeconfig-multi --context kubernetes-admin@mgmt \
+kubectl --context kubernetes-admin@mgmt \
   -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 -d
 ```
