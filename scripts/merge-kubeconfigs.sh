@@ -70,8 +70,24 @@ kubectl --kubeconfig="${OUTPUT}" config use-context "kubernetes-admin@${FIRST_CL
 # 홈 디렉토리에도 복사
 cp "${OUTPUT}" ~/kubeconfig-multi
 
+# ~/.kube/config에 병합 (기존 컨텍스트 보존)
+KUBE_DIR="${HOME}/.kube"
+KUBE_CONFIG="${KUBE_DIR}/config"
+mkdir -p "${KUBE_DIR}"
+
+if [[ -f "${KUBE_CONFIG}" ]]; then
+  # 기존 config 백업 후 병합
+  cp "${KUBE_CONFIG}" "${KUBE_CONFIG}.bak.$(date +%Y%m%d%H%M%S)"
+  KUBECONFIG="${KUBE_CONFIG}:${OUTPUT}" kubectl config view --flatten > "${KUBE_CONFIG}.merged"
+  mv "${KUBE_CONFIG}.merged" "${KUBE_CONFIG}"
+  log_info "Merged into ${KUBE_CONFIG} (backup: ${KUBE_CONFIG}.bak.*) ✓"
+else
+  cp "${OUTPUT}" "${KUBE_CONFIG}"
+  log_info "Created ${KUBE_CONFIG} ✓"
+fi
+chmod 600 "${KUBE_CONFIG}"
+
 log_info "Kubeconfig merged to ${OUTPUT} ✓"
 log_info "Also copied to ~/kubeconfig-multi ✓"
 echo ""
-echo "Usage: export KUBECONFIG=~/kubeconfig-multi"
 echo "Switch context: kubectl config use-context kubernetes-admin@<cluster>"

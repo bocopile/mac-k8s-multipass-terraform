@@ -320,11 +320,25 @@ resource "null_resource" "cleanup" {
         echo "  Generated files cleaned."
       fi
 
-      # 3. ~/kubeconfig-multi 삭제
+      # 3. kubeconfig 정리
       echo ""
-      echo "--- [3/4] Removing ~/kubeconfig-multi ---"
+      echo "--- [3/4] Removing kubeconfig entries ---"
       rm -f "$HOME/kubeconfig-multi" 2>/dev/null || true
-      echo "  Done."
+      echo "  ~/kubeconfig-multi removed."
+
+      # ~/.kube/config에서 해당 클러스터 컨텍스트 제거
+      if [[ -f "$HOME/.kube/config" ]]; then
+        for ctx in $(kubectl config get-contexts -o name --kubeconfig "$HOME/.kube/config" 2>/dev/null | grep 'kubernetes-admin@\(mgmt\|app1\|app2\)'); do
+          kubectl config delete-context "$ctx" --kubeconfig "$HOME/.kube/config" 2>/dev/null || true
+        done
+        for cl in $(kubectl config get-clusters --kubeconfig "$HOME/.kube/config" 2>/dev/null | grep '^\(mgmt\|app1\|app2\)$'); do
+          kubectl config delete-cluster "$cl" --kubeconfig "$HOME/.kube/config" 2>/dev/null || true
+        done
+        for user in $(kubectl config get-users --kubeconfig "$HOME/.kube/config" 2>/dev/null | grep 'kubernetes-admin@\(mgmt\|app1\|app2\)'); do
+          kubectl config delete-user "$user" --kubeconfig "$HOME/.kube/config" 2>/dev/null || true
+        done
+        echo "  ~/.kube/config cleaned (mgmt/app1/app2 entries removed)."
+      fi
 
       # 4. /etc/hosts 안내
       echo ""
