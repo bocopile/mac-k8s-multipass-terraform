@@ -80,7 +80,7 @@ spec:
       auth:
         tokenSecretRef:
           name: "vault-token"
-          namespace: "external-secrets"
+          namespace: "${NAMESPACE_SECURITY}"
           key: "token"
   refreshInterval: 3600
 EOF

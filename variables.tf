@@ -51,7 +51,7 @@ variable "tetragon_version" {
 variable "cert_manager_version" {
   description = "cert-manager 버전"
   type        = string
-  default     = "v1.19.3"
+  default     = "v1.17.1"
 }
 
 variable "kyverno_version" {
@@ -69,7 +69,7 @@ variable "falco_version" {
 variable "argocd_version" {
   description = "ArgoCD Helm 차트 버전 (mgmt 클러스터)"
   type        = string
-  default     = "7.7.11"
+  default     = "9.4.7"
 }
 
 variable "istio_version" {
@@ -91,54 +91,33 @@ variable "istio_version" {
 variable "tempo_version" {
   description = "Grafana Tempo 분산 추적 백엔드 버전 (mgmt 클러스터)"
   type        = string
-  default     = "2.6.1"
+  default     = "1.24.4"
 
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.tempo_version))
-    error_message = "tempo_version must be in semantic version format (e.g., '2.6.1')"
+    error_message = "tempo_version must be in semantic version format (e.g., '1.24.4')"
   }
 }
 
 variable "alloy_version" {
   description = "Grafana Alloy 버전 (전 클러스터 - Promtail/OTel Collector/Prometheus Agent 통합)"
   type        = string
-  default     = "1.5.0"
+  default     = "1.6.1"
 
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.alloy_version))
-    error_message = "alloy_version must be in semantic version format (e.g., '1.5.0')"
+    error_message = "alloy_version must be in semantic version format (e.g., '1.6.1')"
   }
 }
 
 variable "kiali_version" {
   description = "Kiali Service Mesh 관찰성 대시보드 버전 (mgmt, app1 클러스터)"
   type        = string
-  default     = "1.91.0"
+  default     = "2.22.0"
 
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.kiali_version))
-    error_message = "kiali_version must be in semantic version format (e.g., '1.91.0')"
+    error_message = "kiali_version must be in semantic version format (e.g., '2.22.0')"
   }
 }
 
-variable "robusta_version" {
-  description = "Robusta (HolmesGPT) AI 기반 알림 조사 버전 (mgmt 클러스터)"
-  type        = string
-  default     = "0.13.0"
-
-  validation {
-    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.robusta_version))
-    error_message = "robusta_version must be in semantic version format (e.g., '0.13.0')"
-  }
-}
-
-variable "botkube_version" {
-  description = "Botkube Slack 통합 버전 (mgmt 클러스터)"
-  type        = string
-  default     = "1.15.0"
-
-  validation {
-    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.botkube_version))
-    error_message = "botkube_version must be in semantic version format (e.g., '1.15.0')"
-  }
-}
